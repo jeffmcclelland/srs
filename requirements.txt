@@ -2,3 +2,5 @@ streamlit
 openai
 pandas
 streamlit-drawable-canvas
+aisuite[all]
+python-dotenv
