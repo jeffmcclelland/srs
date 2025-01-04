@@ -17,18 +17,24 @@ from datetime import datetime, timedelta
 import json
 
 # Configure Streamlit to use wide mode and hide the top streamlit menu
-st.set_page_config(layout="wide", menu_items={})
+st.set_page_config(
+    layout="wide", 
+    menu_items={},
+    page_title="Siiri SRS",
+    page_icon="🖍️",
+)
 
 # Constants
-DEBUG = True
+DEBUG = False
 DATA_RANGE = "A:D"  # Range of columns to read/write in Google Sheet
 SELECTED_MODEL = "anthropic:claude-3-opus-20240229"  # Hardcoded to Claude model
 
 # Template for LLM prompt
 LLM_PROMPT_TEMPLATE = """Review the image. It contains text that was handwritten. 
 
-The user was issued the following prompt: {prompt}
-The correct answer is: {correct_answer}
+The user was issued the following prompt: '{prompt}'
+
+The correct answer is: '{correct_answer}'
 
 This is a test of their spelling abilities. Capitalisation doesn't matter but the spelling should be exactly correct. 
 - Congratulate the user if the writing in the image matches. 
@@ -260,59 +266,57 @@ def write_df_to_google_sheet(googlecreds,
 
 # Add heading with padding
 st.markdown(
-    "<div style='padding-top: 1rem;'><h2 style='text-align: center; color: #ffffff;'>Siiri SRS</h2></div>",
+    "<div style='padding-top: 1rem;'><h2 style='text-align: center;'>Siiri SRS</h2></div>",
     unsafe_allow_html=True,
 )
 
-st.markdown(
-    """
-    <style>
-        /* Hide Streamlit's default top bar */
-        #MainMenu {visibility: hidden;}
-        header {visibility: hidden;}
-        footer {visibility: hidden;}
-        
-        /* Remove top padding/margin */
-        .block-container {
-            padding-top: 0rem;
-            padding-bottom: 0rem;
-            margin-top: 0rem;
-        }
-
-        /* Remove padding from the app container */
-        .appview-container {
-            padding-top: 0rem;
-        }
-        
-        /* Custom CSS for scrollable chat container */
-        .chat-container {
-            height: 650px;
-            overflow-y: auto !important;
-            background-color: #1E1E1E;
-            border: 1px solid #333;
-            border-radius: 10px;
-            padding: 20px;
-            margin: 10px 0;
-        }
-        
-        /* Ensure the container takes full width */
-        .stMarkdown {
-            width: 100%;
-        }
-        
-        /* Style for chat messages to ensure they're visible */
-        .chat-message {
-            margin: 10px 0;
-            padding: 10px;
-        }
-        
-        #text_area_1 {
-            min-height: 20px !important;
-        } 
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+# st.markdown(
+#     """
+#     <style>
+#         /* Hide Streamlit's default top bar */
+#         #MainMenu {visibility: hidden;}
+#         header {visibility: hidden;}
+#         footer {visibility: hidden;}
+#         
+#         /* Remove top padding/margin */
+#         .block-container {
+#             padding-top: 0rem;
+#             padding-bottom: 0rem;
+#             margin-top: 0rem;
+#         }
+# 
+#         /* Remove padding from the app container */
+#         .appview-container {
+#             padding-top: 0rem;
+#         }
+#         
+#         /* Custom CSS for scrollable chat container */
+#         .chat-container {
+#             height: 650px;
+#             overflow-y: auto !important;
+#             border-radius: 10px;
+#             padding: 20px;
+#             margin: 10px 0;
+#         }
+#         
+#         /* Ensure the container takes full width */
+#         .stMarkdown {
+#             width: 100%;
+#         }
+#         
+#         /* Style for chat messages to ensure they're visible */
+#         .chat-message {
+#             margin: 10px 0;
+#             padding: 10px;
+#         }
+#         
+#         #text_area_1 {
+#             min-height: 20px !important;
+#         } 
+#     </style>
+#     """,
+#     unsafe_allow_html=True,
+# )
 
 # Read and display the sheet data
 try:
