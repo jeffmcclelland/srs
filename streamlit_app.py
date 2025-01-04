@@ -25,7 +25,7 @@ st.set_page_config(
 )
 
 # Constants
-DEBUG = False
+DEBUG = True
 DATA_RANGE = "A:D"  # Range of columns to read/write in Google Sheet
 SELECTED_MODEL = "anthropic:claude-3-opus-20240229"  # Hardcoded to Claude model
 
