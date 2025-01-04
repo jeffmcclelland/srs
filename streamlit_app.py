@@ -40,7 +40,7 @@ with open('config.yaml', 'r') as f:
 HAIKU_MODEL = next(
     (f"{model['provider']}:{model['model']}" 
      for model in config['llms'] 
-     if model['name'] == "Anthropic Claude 3.5 Haiku"),
+     if model['name'] == "Anthropic Claude 3.5 Sonnet"),
     None
 )
 

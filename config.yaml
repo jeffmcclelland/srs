@@ -5,7 +5,7 @@ llms:
     model: "gpt-4o"
   - name: "Anthropic Claude 3.5 Sonnet"
     provider: "anthropic"
-    model: "claude-3-5-sonnet-20240620"
+    model: "claude-3-5-sonnet-20241022"
   - name: "Anthropic Claude 3.5 Haiku"
     provider: "anthropic"
     model: "claude-3-5-haiku-20241022"
