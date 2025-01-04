@@ -6,3 +6,4 @@ aisuite[all]
 gspread
 google.oauth
 google.auth
+watchdog
