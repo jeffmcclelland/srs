@@ -3,4 +3,6 @@ openai
 pandas
 streamlit-drawable-canvas
 aisuite[all]
-python-dotenv
+gspread
+google.oauth
+google.auth
