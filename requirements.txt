@@ -7,3 +7,4 @@ gspread
 google.oauth
 google.auth
 watchdog
+pytz

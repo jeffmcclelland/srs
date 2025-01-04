@@ -15,6 +15,7 @@ from google.oauth2.service_account import Credentials
 from google.auth.transport.requests import Request
 from datetime import datetime, timedelta
 import json
+import pytz
 
 # Configure Streamlit to use wide mode and hide the top streamlit menu
 st.set_page_config(
@@ -28,6 +29,7 @@ st.set_page_config(
 DEBUG = True
 DATA_RANGE = "A:D"  # Range of columns to read/write in Google Sheet
 SELECTED_MODEL = "anthropic:claude-3-opus-20240229"  # Hardcoded to Claude model
+TIMEZONE = pytz.timezone('EET')  # Add timezone constant
 
 # Template for LLM prompt
 LLM_PROMPT_TEMPLATE = """Review the image. It contains text that was handwritten. 
@@ -88,6 +90,10 @@ if 'active_questions' not in st.session_state:
     st.session_state.active_questions = None
 if 'llm_response' not in st.session_state:
     st.session_state.llm_response = None
+if 'full_df' not in st.session_state:
+    st.session_state.full_df = None
+if 'current_timestamp' not in st.session_state:
+    st.session_state.current_timestamp = None
 
 def log_response_to_sheet(question_data, llm_response, timestamp):
     """Log the response to the SRSLog sheet"""
@@ -322,17 +328,37 @@ st.markdown(
 try:
     # Only read the sheet if we haven't loaded questions yet
     if st.session_state.active_questions is None:
-        # Read the sheet
+        # Read the sheet data
         df = read_sheet_to_df(googlecreds, spreadsheet_url, sheet_name_SRSNext, DATA_RANGE)
         
-        # Convert Next Ask Timestamp to datetime
-        df['Next Ask Timestamp'] = pd.to_datetime(df['Next Ask Timestamp'])
+        # Get current time in EET
+        timestamp = datetime.now(TIMEZONE)
         
-        # Filter for questions that should be asked now
-        current_time = datetime.now()
-        st.session_state.active_questions = df[df['Next Ask Timestamp'] <= current_time].copy()
+        # Convert timestamps in dataframe to EET timezone
+        df['Next Ask Timestamp'] = pd.to_datetime(df['Next Ask Timestamp']).dt.tz_localize('EET')
+        
+        # Filter for questions that are due
+        mask = df['Next Ask Timestamp'] <= timestamp
+        df_filtered = df[mask].copy()
+        
+        st.session_state.full_df = df  # Store the full df in session state
+        st.session_state.active_questions = df_filtered
+        st.session_state.current_timestamp = timestamp
     
     active_questions = st.session_state.active_questions
+    
+    # Debug information - outside the initialization block so it stays visible
+    if DEBUG:
+        st.write("### Debug Information")
+        st.write("Full SRSNext dataframe before filtering:")
+        st.write(st.session_state.full_df)
+        st.write("DataFrame info:")
+        st.write(st.session_state.full_df.info())
+        st.write("Current time:", st.session_state.current_timestamp)
+        st.write(f"Number of questions after filtering: {len(active_questions)}")
+        if len(active_questions) > 0:
+            st.write("First filtered question:")
+            st.write(active_questions.iloc[0])
     
     # Display number of prompts at the top
     num_prompts = len(active_questions)
@@ -448,7 +474,7 @@ try:
                         st.rerun()
                     else:
                         # Log the response
-                        current_time = datetime.now()
+                        current_time = datetime.now(TIMEZONE)
                         log_response_to_sheet(current_question, llm_response, current_time)
                         
                         # Display the response
