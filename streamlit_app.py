@@ -8,7 +8,6 @@ import base64
 import io
 from PIL import Image
 import numpy as np
-from dotenv import load_dotenv, find_dotenv
 from streamlit_drawable_canvas import st_canvas
 
 # Configure Streamlit to use wide mode and hide the top streamlit menu
@@ -82,7 +81,11 @@ configured_llms = config["llms"]
 model_names = [f"{llm['provider']}:{llm['model']}" for llm in configured_llms]
 selected_model = st.selectbox("Select Model", model_names)
 
-load_dotenv(find_dotenv())
+# Set API keys from Streamlit secrets
+os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
+os.environ["ANTHROPIC_API_KEY"] = st.secrets["ANTHROPIC_API_KEY"]
+os.environ["GEMINI_API_KEY"] = st.secrets["GEMINI_API_KEY"]
+
 client = ai.Client()
 
 # Initialize canvas key in session state if it doesn't exist
