@@ -36,6 +36,7 @@ This is a test of their spelling abilities. Capitalisation doesn't matter but th
 - If it's not possible to read any letters from the image, indicate that the user should try writing it again. 
 
 Respond in valid json with the following keys:
+- "image_answer": string - the words detected in the image
 - "correct": true or false
 - "try_again": true or false - true if it's not possible to read any letters from the image; false in all other cases
 - "user_message": string - a nice congratulations if they got it right, or a concise, clear message about what they got wrong. if it's not possible to read any letters from the image, then indicate the user should try again.
@@ -102,10 +103,15 @@ def log_response_to_sheet(question_data, llm_response, timestamp):
             'Prompt': [question_data['Prompt']],
             'Correct Answer': [question_data['Correct Answer']],
             'Asked Timestamp': [timestamp.strftime('%Y-%m-%d %H:%M:%S')],
+            'Image Answer': [result.get('image_answer', '')],  
             'Result': ['Correct' if result['correct'] else 'Incorrect'],
             'Result Details': ['Correct' if result['correct'] else result['user_message']],
             'Next Ask Timestamp': [next_ask_str]
         })
+        
+        if DEBUG:
+            print("Debug - Log data:")
+            print(log_data)
         
         # Write to SRSLog sheet
         write_df_to_google_sheet(
@@ -145,23 +151,37 @@ def update_next_ask_timestamp(googlecreds, spreadsheet_url, sheet_name, row_inde
         next_ask_timestamp: The new timestamp value
     """
     try:
+        if DEBUG:
+            print(f"Debug - Updating Next Ask Timestamp in {sheet_name}")
+            print(f"Debug - Row index: {row_index}")
+            print(f"Debug - New timestamp: {next_ask_timestamp}")
+            
         # Setup the credentials and get worksheet
         client = gspread.authorize(googlecreds)
         sh = client.open_by_url(spreadsheet_url)
         worksheet = sh.worksheet(sheet_name)
         
+        if DEBUG:
+            print(f"Debug - Got worksheet: {sheet_name}")
+            print(f"Debug - Current values:")
+            current = worksheet.get(f'D{row_index}')
+            print(f"Debug - Current value at D{row_index}: {current}")
+        
         # Column D is the Next Ask Timestamp column
         # Convert row_index to A1 notation for column D
         cell = f'D{row_index}'
         
-        # Update the cell
-        worksheet.update_acell(cell, next_ask_timestamp)
+        # Update the cell - needs to be in format [[value]] for single cell
+        worksheet.update(cell, [[next_ask_timestamp]])
         
         if DEBUG:
-            print(f"Updated Next Ask Timestamp in {sheet_name} at {cell}")
+            print(f"Debug - Updated cell {cell} to {next_ask_timestamp}")
+            new_value = worksheet.get(cell)
+            print(f"Debug - New value after update: {new_value}")
             
     except Exception as e:
         if DEBUG:
+            print(f"Debug - Error updating Next Ask Timestamp: {str(e)}")
             st.error(f"Error updating Next Ask Timestamp: {str(e)}")
 
 def move_to_next_question():
