@@ -17,19 +17,37 @@ from datetime import datetime, timedelta
 import json
 import pytz
 
+# Constants
+DEBUG = False
+DATA_RANGE = "A:D"  # Range of columns to read/write in Google Sheet
+SELECTED_MODEL = None  # Use the model from config
+TIMEZONE = pytz.timezone('EET')  # Add timezone constant
+
 # Configure Streamlit to use wide mode and hide the top streamlit menu
 st.set_page_config(
     layout="wide", 
     menu_items={},
+    initial_sidebar_state="collapsed",
     page_title="Siiri SRS",
     page_icon="🖍️",
 )
 
-# Constants
-DEBUG = True
-DATA_RANGE = "A:D"  # Range of columns to read/write in Google Sheet
-SELECTED_MODEL = "anthropic:claude-3-opus-20240229"  # Hardcoded to Claude model
-TIMEZONE = pytz.timezone('EET')  # Add timezone constant
+# Load config
+with open('config.yaml', 'r') as f:
+    config = yaml.safe_load(f)
+
+# Get Haiku model from config
+HAIKU_MODEL = next(
+    (f"{model['provider']}:{model['model']}" 
+     for model in config['llms'] 
+     if model['name'] == "Anthropic Claude 3.5 Haiku"),
+    None
+)
+
+if DEBUG:
+    st.write("Debug - Selected model:", HAIKU_MODEL)
+
+SELECTED_MODEL = HAIKU_MODEL  # Use the model from config
 
 # Template for LLM prompt
 LLM_PROMPT_TEMPLATE = """Review the image. It contains text that was handwritten. 
@@ -69,10 +87,6 @@ googlecreds.refresh(request)
 # Spreadsheet configuration
 spreadsheet_url = "https://docs.google.com/spreadsheets/d/1NyaBvbHef_eX1lBYtTPzZJ2fBSPRG2yYxitTeEoJy-M/edit?gid=324250006#gid=324250006"
 sheet_name_SRSNext = "SRSNext"
-
-# Load configuration and initialize aisuite client
-with open("config.yaml", "r") as file:
-    config = yaml.safe_load(file)
 
 # Set API keys from Streamlit secrets
 os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]

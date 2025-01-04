@@ -6,3 +6,6 @@ llms:
   - name: "Anthropic Claude 3.5 Sonnet"
     provider: "anthropic"
     model: "claude-3-5-sonnet-20240620"
+  - name: "Anthropic Claude 3.5 Haiku"
+    provider: "anthropic"
+    model: "claude-3-5-haiku-20241022"
