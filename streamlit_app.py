@@ -17,11 +17,37 @@ from datetime import datetime, timedelta
 import json
 import pytz
 
+# Configure Streamlit page - MUST BE FIRST STREAMLIT COMMAND
+st.set_page_config(
+    page_title="Siiri SRS",
+    page_icon="🖍️",
+    layout="wide",
+    initial_sidebar_state="collapsed",
+    menu_items={},
+)
+
 # Constants
-DEBUG = True
+DEBUG = False
 DATA_RANGE = "A:E"  # Updated to include Confidence Level column
 SELECTED_MODEL = None  # Use the model from config
 TIMEZONE = pytz.timezone('EET')  # Add timezone constant
+ACTIVE_THEME = "theme1"  # Can be "theme1" or "theme2"
+
+# Theme definitions
+THEMES = {
+    "theme1": {
+        "primaryColor": "#eb5e28",
+        "backgroundColor": "#fffcf2",
+        "secondaryBackgroundColor": "#fff",
+        "textColor": "#403d39"
+    },
+    "theme2": {
+        "primaryColor": "#ff6700",
+        "backgroundColor": "#fff",
+        "secondaryBackgroundColor": "#ebebeb",
+        "textColor": "#004e98"
+    }
+}
 
 # SRS time delay configuration
 srs_time_delays = [
@@ -33,13 +59,63 @@ srs_time_delays = [
     {"confidence_level": 5, "delay_quantity": 20, "delay_time_unit": 'days'},
 ]
 
-# Configure Streamlit to use wide mode and hide the top streamlit menu
-st.set_page_config(
-    layout="wide", 
-    menu_items={},
-    initial_sidebar_state="collapsed",
-    page_title="Siiri SRS",
-    page_icon="🖍️",
+# Get current theme
+current_theme = THEMES[ACTIVE_THEME]
+
+# Apply theme
+st.markdown(
+    f"""
+    <style>
+        /* Theme colors */
+        :root {{
+            --primary-color: {current_theme["primaryColor"]};
+            --background-color: {current_theme["backgroundColor"]};
+            --secondary-background-color: {current_theme["secondaryBackgroundColor"]};
+            --text-color: {current_theme["textColor"]};
+        }}
+        
+        /* Hide Streamlit's default top bar */
+        #MainMenu {{visibility: hidden;}}
+        header {{visibility: hidden;}}
+        footer {{visibility: hidden;}}
+        
+        /* Apply theme colors */
+        .stApp {{
+            background-color: var(--background-color);
+            color: var(--text-color);
+        }}
+        
+        /* Primary button style */
+        .stButton > button[kind="primary"] {{
+            background-color: var(--primary-color);
+            color: var(--background-color);
+            border-radius: 20px;
+            padding: 0.2rem 1rem;
+        }}
+        
+        /* Secondary button style */
+        .stButton > button[kind="secondary"] {{
+            background-color: var(--secondary-background-color);
+            color: var(--text-color);
+            border: 1px solid var(--text-color);
+            border-radius: 20px;
+            padding: 0.2rem 1rem;
+        }}
+        
+        /* Remove top padding/margin */
+        .block-container {{
+            padding-top: 0rem;
+            padding-bottom: 0rem;
+            margin-top: 0rem;
+        }}
+
+        /* Remove padding from the app container */
+        .appview-container {{
+            padding-top: 0rem;
+        }}
+    </style>
+    """,
+    unsafe_allow_html=True,
 )
 
 # Load config
@@ -320,54 +396,6 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# st.markdown(
-#     """
-#     <style>
-#         /* Hide Streamlit's default top bar */
-#         #MainMenu {visibility: hidden;}
-#         header {visibility: hidden;}
-#         footer {visibility: hidden;}
-#         
-#         /* Remove top padding/margin */
-#         .block-container {
-#             padding-top: 0rem;
-#             padding-bottom: 0rem;
-#             margin-top: 0rem;
-#         }
-# 
-#         /* Remove padding from the app container */
-#         .appview-container {
-#             padding-top: 0rem;
-#         }
-#         
-#         /* Custom CSS for scrollable chat container */
-#         .chat-container {
-#             height: 650px;
-#             overflow-y: auto !important;
-#             border-radius: 10px;
-#             padding: 20px;
-#             margin: 10px 0;
-#         }
-#         
-#         /* Ensure the container takes full width */
-#         .stMarkdown {
-#             width: 100%;
-#         }
-#         
-#         /* Style for chat messages to ensure they're visible */
-#         .chat-message {
-#             margin: 10px 0;
-#             padding: 10px;
-#         }
-#         
-#         #text_area_1 {
-#             min-height: 20px !important;
-#         } 
-#     </style>
-#     """,
-#     unsafe_allow_html=True,
-# )
-
 # Read and display the sheet data
 try:
     # Only read the sheet if we haven't loaded questions yet
@@ -407,7 +435,7 @@ try:
     # Display number of prompts at the top
     num_prompts = len(active_questions)
     if num_prompts > 0:
-        st.info(f"You have {num_prompts} word{'s' if num_prompts > 1 else ''} to practice today!")
+        st.markdown(f"You have {num_prompts} word{'s' if num_prompts > 1 else ''} to practice today!")
     
     if len(active_questions) > 0 and st.session_state.current_question_index < len(active_questions):
         if DEBUG:
@@ -427,18 +455,32 @@ try:
         # Display the prompt
         st.write(f"### {current_question['Prompt']}")
         
+        # Get theme colors from our theme dictionary
+        theme_secondary_bg = current_theme["secondaryBackgroundColor"]
+        theme_primary_color = current_theme["primaryColor"]
+        
         # Create canvas
         canvas_result = st_canvas(
-            stroke_width=4,
-            stroke_color="#37384c",
-            background_color="#F9FBFD",
+            stroke_width=6,
+            stroke_color=theme_primary_color,  
+            background_color=theme_secondary_bg,  
             height=300,
+            width=800,
+            display_toolbar=False,
             drawing_mode="freedraw",
             key=f"canvas_{st.session_state.canvas_key}",
         )
         
-        # Create a "Check" button to trigger LLM analysis
-        if st.button("Check"):
+        # Create two columns for buttons
+        col1, col2 = st.columns([1, 8])
+        
+        # Clear button in left column
+        if col1.button("Clear",type="secondary"):
+            st.session_state.canvas_key += 1
+            st.rerun()
+            
+        # Check button in right column
+        if col2.button("Check",type="primary"):
             # Create status box for LLM response
             with st.status("Analyzing your writing...", expanded=True) as status:
                 try:
@@ -529,7 +571,7 @@ try:
                             st.success("Congratulations! You've completed all your practice questions!")
                         else:
                             # Show next button if not the last question
-                            if st.button("Next Question"):
+                            if st.button("Next Question",type="primary"):
                                 move_to_next_question()
                                 st.rerun()
                     
