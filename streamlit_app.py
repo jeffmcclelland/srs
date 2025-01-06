@@ -16,6 +16,7 @@ from google.auth.transport.requests import Request
 from datetime import datetime, timedelta
 import json
 import pytz
+import random
 
 # Configure Streamlit page - MUST BE FIRST STREAMLIT COMMAND
 st.set_page_config(
@@ -26,11 +27,21 @@ st.set_page_config(
 )
 
 # Constants
-DEBUG = False
+DEBUG = True
 DATA_RANGE = "A:F"  # Prompt ID, Set, Prompt, Correct Answer, Confidence Level, Next Ask Timestamp
 SELECTED_MODEL = None  # Use the model from config
 TIMEZONE = pytz.timezone('EET')  # Add timezone constant
 ACTIVE_THEME = "theme1"  # Can be "theme1" or "theme2"
+
+# Load configuration
+with open('config.yaml', 'r') as f:
+    config = yaml.safe_load(f)
+    
+# Spreadsheet configuration
+spreadsheet_url = "https://docs.google.com/spreadsheets/d/1NyaBvbHef_eX1lBYtTPzZJ2fBSPRG2yYxitTeEoJy-M/edit?gid=324250006#gid=324250006"
+sheet_name_SRSNext = "SRSNext"
+sheet_name_SRSLog = "SRSLog"
+SELECTED_MODEL = config.get('model', SELECTED_MODEL)
 
 # Theme definitions
 THEMES = {
@@ -161,8 +172,7 @@ SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
 ]
 
-skey = st.secrets["gcp_service_account"]
-googlecreds = Credentials.from_service_account_info(skey, scopes=SCOPES)
+googlecreds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=SCOPES)
 
 client = gspread.authorize(googlecreds)
 
@@ -170,10 +180,6 @@ client = gspread.authorize(googlecreds)
 request = Request()
 # Use it to refresh the access token
 googlecreds.refresh(request)
-
-# Spreadsheet configuration
-spreadsheet_url = "https://docs.google.com/spreadsheets/d/1NyaBvbHef_eX1lBYtTPzZJ2fBSPRG2yYxitTeEoJy-M/edit?gid=324250006#gid=324250006"
-sheet_name_SRSNext = "SRSNext"
 
 # Set API keys from Streamlit secrets
 os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
@@ -199,6 +205,48 @@ if 'current_image' not in st.session_state:
     st.session_state.current_image = None
 if 'show_next_button' not in st.session_state:
     st.session_state.show_next_button = False
+if 'selected_sets' not in st.session_state:
+    st.session_state.selected_sets = {}
+if 'study_mode' not in st.session_state:
+    st.session_state.study_mode = False
+
+def toggle_study_mode():
+    st.session_state.study_mode = not st.session_state.study_mode
+    if not st.session_state.study_mode:
+        st.session_state.active_questions = None
+        st.session_state.current_question_index = 0
+
+def get_available_sets(googlecreds, spreadsheet_url, sheet_name, data_range):
+    try:
+        # Set up the credentials
+        client = gspread.authorize(googlecreds)
+        sh = client.open_by_url(spreadsheet_url)
+        worksheet = sh.worksheet(sheet_name)
+        data = worksheet.get(data_range)
+        
+        if not data or len(data) < 2:
+            return {}
+            
+        # Create DataFrame
+        df = pd.DataFrame(data[1:], columns=['Prompt ID', 'Set', 'Prompt', 'Correct Answer', 'Confidence Level', 'Next Ask Timestamp'])
+        df['Next Ask Timestamp'] = df['Next Ask Timestamp'].apply(lambda x: x.strip("'") if isinstance(x, str) else x)
+        df['Next Ask Timestamp'] = pd.to_datetime(df['Next Ask Timestamp'], format='%Y-%m-%d %H:%M:%S')
+        df['Next Ask Timestamp'] = df['Next Ask Timestamp'].dt.tz_localize('EET')
+        
+        # Get current time
+        current_time = datetime.now(TIMEZONE)
+        
+        # Filter for due questions
+        due_questions = df[df['Next Ask Timestamp'] <= current_time]
+        
+        # Group by Set and count
+        set_counts = due_questions.groupby('Set').size().to_dict()
+        
+        return set_counts
+        
+    except Exception as e:
+        st.error(f"Error reading sets: {str(e)}")
+        return {}
 
 def calculate_next_timestamp(confidence_level, current_time):
     """Calculate next ask timestamp based on confidence level"""
@@ -443,191 +491,205 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Read and display the sheet data
+# Main app logic
 try:
-    # Only read the sheet if we haven't loaded questions yet
-    if st.session_state.active_questions is None:
-        # Read the sheet data
-        active_questions = read_sheet_to_df(googlecreds, spreadsheet_url, sheet_name_SRSNext, DATA_RANGE)
+    # If we're not in study mode, show set selection
+    if not st.session_state.study_mode:
+        st.markdown("### Choose Sets to Study")
         
-        st.session_state.active_questions = active_questions
-    
-    active_questions = st.session_state.active_questions
-    
-    if DEBUG:
-        st.write("Debug Information")
-        st.write("Number of active questions:", len(active_questions) if active_questions else 0)
-        if active_questions:
-            st.write("First active question:", active_questions[0])
-        else:
-            st.write("No active questions found")
-    
-    # Display number of prompts at the top
-    num_prompts = len(active_questions)
-    if num_prompts > 0:
-        st.markdown(f"You have {num_prompts} word{'s' if num_prompts > 1 else ''} to practice today!")
-    
-    if len(active_questions) > 0 and st.session_state.current_question_index < len(active_questions):
-        if DEBUG:
-            st.write("Debug - Active questions:", active_questions)
-            st.write("Debug - Current question index:", st.session_state.current_question_index)
+        # Get available sets and their counts
+        available_sets = get_available_sets(googlecreds, spreadsheet_url, sheet_name_SRSNext, DATA_RANGE)
         
-        # Get the current question
-        current_question = active_questions[st.session_state.current_question_index]
-        prompt = current_question['Prompt']
-        correct_answer = current_question['Correct Answer']
+        # Initialize selected_sets if empty
+        if not st.session_state.selected_sets:
+            st.session_state.selected_sets = {set_name: True for set_name in available_sets.keys()}
         
-        # Display progress
-        if active_questions is not None and len(active_questions) > 0:
-            progress = st.progress(st.session_state.current_question_index / len(active_questions))
-            st.write(f"Question {st.session_state.current_question_index + 1} of {len(active_questions)}")
-
-        # Display the prompt
-        st.markdown("### Translate the following:")
-        st.markdown(f'<h1 style="color: {current_theme["primaryColor"]}">{current_question["Prompt"]}</h1>', unsafe_allow_html=True)
+        # Create checkboxes for each set
+        for set_name, count in available_sets.items():
+            st.session_state.selected_sets[set_name] = st.checkbox(
+                f"{set_name} - {count} words",
+                value=st.session_state.selected_sets.get(set_name, True),
+                key=f"set_{set_name}"
+            )
         
-        # Get theme colors from our theme dictionary
-        theme_secondary_bg = current_theme["secondaryBackgroundColor"]
-        theme_primary_color = current_theme["primaryColor"]
-        
-        # Create canvas
-        canvas_result = st_canvas(
-            stroke_width=6,
-            stroke_color=theme_primary_color,  
-            background_color=theme_secondary_bg,  
-            height=300,
-            width=800,
-            display_toolbar=False,
-            drawing_mode="freedraw",
-            key=f"canvas_{st.session_state.canvas_key}",
-        )
-        
-        # Create two columns for buttons
-        col1, col2 = st.columns([1, 8])
-        
-        # Clear button in left column
-        if col1.button("Clear",type="secondary"):
-            st.session_state.canvas_key += 1
+        # Get Started button
+        if st.button("Get Started", type="primary"):
+            st.session_state.study_mode = True
             st.rerun()
             
-        # Check button in right column
-        if col2.button("Check",type="primary"):
-            # Create status box for LLM response
-            with st.status("Analyzing your writing...", expanded=True) as status:
-                try:
-                    # Convert numpy array to PIL Image
-                    image = Image.fromarray(canvas_result.image_data.astype('uint8'))
-                    
-                    # Convert to base64
-                    buffered = io.BytesIO()
-                    image.save(buffered, format="PNG")
-                    img_str = base64.b64encode(buffered.getvalue()).decode()
-                    
-                    # Prepare message based on provider
-                    provider = SELECTED_MODEL.split(":")[0]
-                    prompt_text = LLM_PROMPT_TEMPLATE.format(
-                        prompt=current_question['Prompt'],
-                        correct_answer=current_question['Correct Answer']
-                    )
-                    
-                    if DEBUG:
-                        st.write("Debug - Prompt text:", prompt_text)
-                    
-                    if provider == "openai":
-                        messages = [
-                            {"role": "user", "content": [
-                                {"type": "text", "text": prompt_text},
-                                {"type": "image_url", 
-                                 "image_url": {
-                                    "url": f"data:image/png;base64,{img_str}"
-                                 }
-                                }
-                            ]}
-                        ]
-                    else:  # anthropic
-                        messages = [
-                            {"role": "user", "content": [
-                                {"type": "text", "text": prompt_text},
-                                {
-                                    "type": "image",
-                                    "source": {
-                                        "type": "base64",
-                                        "media_type": "image/png",
-                                        "data": img_str
+    else:
+        # Show "Change Sets" button
+        if st.button("Change Sets", type="secondary"):
+            toggle_study_mode()
+            st.rerun()
+            
+        # Only read the sheet if we haven't loaded questions yet
+        if st.session_state.active_questions is None:
+            # Read the sheet data
+            all_questions = read_sheet_to_df(googlecreds, spreadsheet_url, sheet_name_SRSNext, DATA_RANGE)
+            
+            # Filter questions based on selected sets
+            active_questions = [q for q in all_questions if st.session_state.selected_sets.get(q['Set'], False)]
+            
+            # Randomly shuffle questions
+            random.shuffle(active_questions)
+            
+            st.session_state.active_questions = active_questions
+        
+        active_questions = st.session_state.active_questions
+        
+        # Display number of prompts at the top
+        num_prompts = len(active_questions) if active_questions else 0
+        if num_prompts > 0:
+            st.markdown(f"You have {num_prompts} word{'s' if num_prompts > 1 else ''} to practice today!")
+        
+        if len(active_questions or []) > 0 and st.session_state.current_question_index < len(active_questions):
+            # Get the current question
+            current_question = active_questions[st.session_state.current_question_index]
+            prompt = current_question['Prompt']
+            correct_answer = current_question['Correct Answer']
+            
+            # Display progress
+            if active_questions is not None and len(active_questions) > 0:
+                progress = st.progress(st.session_state.current_question_index / len(active_questions))
+                st.write(f"Question {st.session_state.current_question_index + 1} of {len(active_questions)}")
+
+            # Display the prompt
+            st.markdown("### Translate the following:")
+            st.markdown(f'<h1 style="color: {current_theme["primaryColor"]}">{current_question["Prompt"]}</h1>', unsafe_allow_html=True)
+            
+            # Get theme colors from our theme dictionary
+            theme_secondary_bg = current_theme["secondaryBackgroundColor"]
+            theme_primary_color = current_theme["primaryColor"]
+            
+            # Create canvas
+            canvas_result = st_canvas(
+                stroke_width=6,
+                stroke_color=theme_primary_color,  
+                background_color=theme_secondary_bg,  
+                height=300,
+                width=800,
+                display_toolbar=False,
+                drawing_mode="freedraw",
+                key=f"canvas_{st.session_state.canvas_key}",
+            )
+            
+            # Create two columns for buttons
+            col1, col2 = st.columns([1, 8])
+            
+            # Clear button in left column
+            if col1.button("Clear",type="secondary"):
+                st.session_state.canvas_key += 1
+                st.rerun()
+                
+            # Check button in right column
+            if col2.button("Check",type="primary"):
+                # Create status box for LLM response
+                with st.status("Analyzing your writing...", expanded=True) as status:
+                    try:
+                        # Convert numpy array to PIL Image
+                        image = Image.fromarray(canvas_result.image_data.astype('uint8'))
+                        
+                        # Convert to base64
+                        buffered = io.BytesIO()
+                        image.save(buffered, format="PNG")
+                        img_str = base64.b64encode(buffered.getvalue()).decode()
+                        
+                        # Prepare message based on provider
+                        provider = SELECTED_MODEL.split(":")[0]
+                        prompt_text = LLM_PROMPT_TEMPLATE.format(
+                            prompt=current_question['Prompt'],
+                            correct_answer=current_question['Correct Answer']
+                        )
+                        
+                        if DEBUG:
+                            st.write("Debug - Prompt text:", prompt_text)
+                        
+                        if provider == "openai":
+                            messages = [
+                                {"role": "user", "content": [
+                                    {"type": "text", "text": prompt_text},
+                                    {"type": "image_url", 
+                                     "image_url": {
+                                        "url": f"data:image/png;base64,{img_str}"
+                                     }
                                     }
-                                }
-                            ]}
-                        ]
-                    
-                    if DEBUG:
-                        st.write("Debug - Message structure:", messages)
-                        st.write("Debug - Provider:", provider)
-                        st.write("Debug - Model:", SELECTED_MODEL)
-                    
-                    # Query the LLM
-                    response = client.chat.completions.create(
-                        model=SELECTED_MODEL,
-                        messages=messages,
-                        temperature=0.5
-                    )
-                    
-                    # Store the response
-                    llm_response = response.choices[0].message.content
-                    st.session_state.llm_response = llm_response
-                    
-                    if DEBUG:
-                        st.write("Debug - Raw LLM response:", llm_response)
-                    
-                    # Parse the JSON response
-                    result = json.loads(llm_response)
-                    
-                    if DEBUG:
-                        st.write("Debug - Parsed JSON response:", result)
-                    
-                    if result['try_again']:
-                        st.write("Response:", result['user_message'])
-                        # Clear canvas for retry
-                        st.session_state.canvas_key += 1
-                        st.rerun()
-                    else:
-                        # Log the response
-                        current_time = datetime.now(TIMEZONE)
-                        log_response_to_sheet(current_question, llm_response, current_time)
+                                ]}
+                            ]
+                        else:  # anthropic
+                            messages = [
+                                {"role": "user", "content": [
+                                    {"type": "text", "text": prompt_text},
+                                    {
+                                        "type": "image",
+                                        "source": {
+                                            "type": "base64",
+                                            "media_type": "image/png",
+                                            "data": img_str
+                                        }
+                                    }
+                                ]}
+                            ]
                         
-                        # Display the response
-                        st.write("Response:", result['user_message'])
+                        if DEBUG:
+                            st.write("Debug - Message structure:", messages)
+                            st.write("Debug - Provider:", provider)
+                            st.write("Debug - Model:", SELECTED_MODEL)
                         
-                        # If this was the last question, show completion message
-                        if st.session_state.current_question_index == len(active_questions) - 1:
-                            st.success("Congratulations! You've completed all your practice questions!")
+                        # Query the LLM
+                        response = client.chat.completions.create(
+                            model=SELECTED_MODEL,
+                            messages=messages,
+                            temperature=0.5
+                        )
+                        
+                        # Store the response
+                        llm_response = response.choices[0].message.content
+                        st.session_state.llm_response = llm_response
+                        
+                        if DEBUG:
+                            st.write("Debug - Raw LLM response:", llm_response)
+                        
+                        # Parse the JSON response
+                        result = json.loads(llm_response)
+                        
+                        if DEBUG:
+                            st.write("Debug - Parsed JSON response:", result)
+                        
+                        if result['try_again']:
+                            st.write("Response:", result['user_message'])
+                            # Clear canvas for retry
+                            st.session_state.canvas_key += 1
+                            st.rerun()
                         else:
-                            # Show next button if not the last question
+                            # Log the response
+                            current_time = datetime.now(TIMEZONE)
+                            log_response_to_sheet(current_question, llm_response, current_time)
+                            
+                            # Display the response
+                            st.write("Response:", result['user_message'])
+                            
                             if st.button("Next Question",type="primary"):
                                 move_to_next_question()
                                 st.rerun()
+                        
+                        status.update(label="Analysis complete!", state="complete", expanded=True)
                     
-                    status.update(label="Analysis complete!", state="complete", expanded=True)
-                
-                except Exception as e:
-                    if DEBUG:
-                        st.error(f"Error: {str(e)}")
-                    st.error("An error occurred while processing your response")
-                    status.update(label="Error occurred!", state="error", expanded=True)
-    else:
-        if len(active_questions) == 0:
-            st.info("No questions are due at this time.")
-        elif st.session_state.current_question_index >= len(active_questions):
-            st.success("Congratulations! You've completed all your practice questions!")
+                    except Exception as e:
+                        if DEBUG:
+                            st.error(f"Error: {str(e)}")
+                        st.error("An error occurred while processing your response")
+                        status.update(label="Error occurred!", state="error", expanded=True)
+        else:
+            if not active_questions or len(active_questions) == 0:
+                st.info("No questions are due at this time.")
+            elif st.session_state.current_question_index >= len(active_questions):
+                st.success("Congratulations! You've completed all your practice questions!")
     
-    if DEBUG:
-        st.subheader("All Questions")
-        st.dataframe(active_questions)
-        
-    if len(active_questions) > 0 and st.session_state.current_question_index == len(active_questions):
-        st.success("Congratulations! You've completed all your practice questions!")
-
 except Exception as e:
     if DEBUG:
         st.error(f"Error reading spreadsheet: {str(e)}")
+        import traceback
+        st.write("Full error:", traceback.format_exc())
     else:
-        st.error("Error reading spreadsheet data")
+        st.error("An error occurred while loading the questions.")
