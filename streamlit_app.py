@@ -21,14 +21,13 @@ import pytz
 st.set_page_config(
     page_title="Siiri SRS",
     page_icon="🖍️",
-    layout="wide",
     initial_sidebar_state="collapsed",
     menu_items={},
 )
 
 # Constants
 DEBUG = False
-DATA_RANGE = "A:E"  # Updated to include Confidence Level column
+DATA_RANGE = "A:F"  # Prompt ID, Set, Prompt, Correct Answer, Confidence Level, Next Ask Timestamp
 SELECTED_MODEL = None  # Use the model from config
 TIMEZONE = pytz.timezone('EET')  # Add timezone constant
 ACTIVE_THEME = "theme1"  # Can be "theme1" or "theme2"
@@ -138,11 +137,13 @@ SELECTED_MODEL = HAIKU_MODEL  # Use the model from config
 # Template for LLM prompt
 LLM_PROMPT_TEMPLATE = """Review the image. It contains text that was handwritten. 
 
-The user was issued the following prompt: '{prompt}'
+The user was asked to translate following word from Estonian into English: '{prompt}'
 
-The correct answer is: '{correct_answer}'
+The correct answer in English is: '{correct_answer}'
 
-This is a test of their spelling abilities. Capitalisation doesn't matter but the spelling should be exactly correct. 
+This is a test of their spelling abilities. Note: 
+  - Capitalisation doesn't matter but the spelling should be exactly correct. 
+  - Punctuation like commas and exclamation marks don't matter. 
 - Congratulate the user if the writing in the image matches. 
 - If it does not match, then indicate the errors that the user made. For instance which letters were missing or incorrect. 
 - If it's not possible to read any letters from the image, indicate that the user should try writing it again. 
@@ -261,6 +262,7 @@ def log_response_to_sheet(question_data, llm_response, timestamp):
         # Prepare the log entry
         log_data = pd.DataFrame({
             'Prompt ID': [question_data['Prompt ID']],
+            'Set': [question_data['Set']],
             'Prompt': [question_data['Prompt']],
             'Correct Answer': [question_data['Correct Answer']],
             'Asked Timestamp': [timestamp.strftime('%Y-%m-%d %H:%M:%S')],
@@ -324,23 +326,68 @@ def move_to_next_question():
     st.rerun()
 
 # Function to read Google Sheet and display as dataframe
-def read_sheet_to_df(googlecreds, spreadsheet_url, spreadsheet_sheet_name, data_range):
-    # Set up the credentials
-    client = gspread.authorize(googlecreds)
+def read_sheet_to_df(googlecreds, spreadsheet_url, sheet_name, data_range):
+    """Read a Google Sheet into a pandas DataFrame"""
+    try:
+        # Set up the credentials
+        client = gspread.authorize(googlecreds)
+        
+        # Open the spreadsheet
+        sh = client.open_by_url(spreadsheet_url)
+        
+        # Select worksheet
+        worksheet = sh.worksheet(sheet_name)
 
-    # Open the spreadsheet
-    sh = client.open_by_url(spreadsheet_url)
+        # Get all data including headers
+        data = worksheet.get(data_range)
+        
+        if DEBUG:
+            st.write("Raw data from sheet:", data)
+            st.write("Number of columns in data:", len(data[0]) if data and len(data) > 0 else "No data")
 
-    # Select worksheet
-    worksheet = sh.worksheet(spreadsheet_sheet_name)
+        if not data or len(data) < 2:  # Check if we have data and at least one row besides headers
+            st.error("No data found in the sheet or data is incomplete")
+            return []
 
-    # Fetch data from the defined range
-    data = worksheet.get(data_range)
+        # Create a DataFrame from the fetched data with correct column order
+        df = pd.DataFrame(data[1:], columns=['Prompt ID', 'Set', 'Prompt', 'Correct Answer', 'Confidence Level', 'Next Ask Timestamp'])
 
-    # Create a DataFrame from the fetched data
-    df = pd.DataFrame(data[1:], columns=data[0])
+        if DEBUG:
+            st.write("DataFrame shape:", df.shape)
+            st.write("DataFrame columns:", df.columns)
+            st.write("First row of DataFrame:", df.iloc[0] if not df.empty else "DataFrame is empty")
 
-    return df
+        # Clean and convert Next Ask Timestamp
+        df['Next Ask Timestamp'] = df['Next Ask Timestamp'].apply(lambda x: x.strip("'") if isinstance(x, str) else x)  # Remove any leading/trailing apostrophes
+        df['Next Ask Timestamp'] = pd.to_datetime(df['Next Ask Timestamp'], format='%Y-%m-%d %H:%M:%S')
+        # Localize timestamps to EET timezone
+        df['Next Ask Timestamp'] = df['Next Ask Timestamp'].dt.tz_localize('EET')
+        
+        # Get current time in EET
+        current_time = datetime.now(TIMEZONE)
+        
+        if DEBUG:
+            st.write("Current time:", current_time)
+            st.write("First timestamp after conversion:", df['Next Ask Timestamp'].iloc[0] if not df.empty else "No timestamps")
+            st.write("Timezone of current time:", current_time.tzinfo)
+            st.write("Timezone of first timestamp:", df['Next Ask Timestamp'].iloc[0].tzinfo if not df.empty else "No timestamps")
+
+        # Filter questions due for review
+        active_questions = df[df['Next Ask Timestamp'] <= current_time].to_dict('records')
+
+        if DEBUG:
+            st.write("Number of active questions:", len(active_questions))
+            if active_questions:
+                st.write("First active question:", active_questions[0])
+
+        return active_questions
+
+    except Exception as e:
+        st.error(f"Error reading spreadsheet: {str(e)}")
+        if DEBUG:
+            import traceback
+            st.write("Full error:", traceback.format_exc())
+        return []
 
 # Function to write dataframe to Google Sheet
 def write_df_to_google_sheet(googlecreds, 
@@ -401,36 +448,19 @@ try:
     # Only read the sheet if we haven't loaded questions yet
     if st.session_state.active_questions is None:
         # Read the sheet data
-        df = read_sheet_to_df(googlecreds, spreadsheet_url, sheet_name_SRSNext, DATA_RANGE)
+        active_questions = read_sheet_to_df(googlecreds, spreadsheet_url, sheet_name_SRSNext, DATA_RANGE)
         
-        # Get current time in EET
-        timestamp = datetime.now(TIMEZONE)
-        
-        # Convert timestamps in dataframe to EET timezone
-        df['Next Ask Timestamp'] = pd.to_datetime(df['Next Ask Timestamp']).dt.tz_localize('EET')
-        
-        # Filter for questions that are due
-        mask = df['Next Ask Timestamp'] <= timestamp
-        df_filtered = df[mask].copy()
-        
-        st.session_state.full_df = df  # Store the full df in session state
-        st.session_state.active_questions = df_filtered
-        st.session_state.current_timestamp = timestamp
+        st.session_state.active_questions = active_questions
     
     active_questions = st.session_state.active_questions
     
-    # Debug information - outside the initialization block so it stays visible
     if DEBUG:
-        st.write("### Debug Information")
-        st.write("Full SRSNext dataframe before filtering:")
-        st.write(st.session_state.full_df)
-        st.write("DataFrame info:")
-        st.write(st.session_state.full_df.info())
-        st.write("Current time:", st.session_state.current_timestamp)
-        st.write(f"Number of questions after filtering: {len(active_questions)}")
-        if len(active_questions) > 0:
-            st.write("First filtered question:")
-            st.write(active_questions.iloc[0])
+        st.write("Debug Information")
+        st.write("Number of active questions:", len(active_questions) if active_questions else 0)
+        if active_questions:
+            st.write("First active question:", active_questions[0])
+        else:
+            st.write("No active questions found")
     
     # Display number of prompts at the top
     num_prompts = len(active_questions)
@@ -443,7 +473,7 @@ try:
             st.write("Debug - Current question index:", st.session_state.current_question_index)
         
         # Get the current question
-        current_question = active_questions.iloc[st.session_state.current_question_index]
+        current_question = active_questions[st.session_state.current_question_index]
         prompt = current_question['Prompt']
         correct_answer = current_question['Correct Answer']
         
@@ -453,7 +483,8 @@ try:
             st.write(f"Question {st.session_state.current_question_index + 1} of {len(active_questions)}")
 
         # Display the prompt
-        st.write(f"### {current_question['Prompt']}")
+        st.markdown("### Translate the following:")
+        st.markdown(f'<h1 style="color: {current_theme["primaryColor"]}">{current_question["Prompt"]}</h1>', unsafe_allow_html=True)
         
         # Get theme colors from our theme dictionary
         theme_secondary_bg = current_theme["secondaryBackgroundColor"]
