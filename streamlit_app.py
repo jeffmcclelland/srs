@@ -18,10 +18,20 @@ import json
 import pytz
 
 # Constants
-DEBUG = False
-DATA_RANGE = "A:D"  # Range of columns to read/write in Google Sheet
+DEBUG = True
+DATA_RANGE = "A:E"  # Updated to include Confidence Level column
 SELECTED_MODEL = None  # Use the model from config
 TIMEZONE = pytz.timezone('EET')  # Add timezone constant
+
+# SRS time delay configuration
+srs_time_delays = [
+    {"confidence_level": 0, "delay_quantity": 10, "delay_time_unit": 'minutes'},
+    {"confidence_level": 1, "delay_quantity": 8,  "delay_time_unit": 'hours'},
+    {"confidence_level": 2, "delay_quantity": 3,  "delay_time_unit": 'days'},
+    {"confidence_level": 3, "delay_quantity": 5,  "delay_time_unit": 'days'},
+    {"confidence_level": 4, "delay_quantity": 10, "delay_time_unit": 'days'},
+    {"confidence_level": 5, "delay_quantity": 20, "delay_time_unit": 'days'},
+]
 
 # Configure Streamlit to use wide mode and hide the top streamlit menu
 st.set_page_config(
@@ -108,6 +118,53 @@ if 'full_df' not in st.session_state:
     st.session_state.full_df = None
 if 'current_timestamp' not in st.session_state:
     st.session_state.current_timestamp = None
+if 'current_image' not in st.session_state:
+    st.session_state.current_image = None
+if 'show_next_button' not in st.session_state:
+    st.session_state.show_next_button = False
+
+def calculate_next_timestamp(confidence_level, current_time):
+    """Calculate next ask timestamp based on confidence level"""
+    delay_config = next(d for d in srs_time_delays if d['confidence_level'] == confidence_level)
+    
+    if delay_config['delay_time_unit'] == 'minutes':
+        delta = timedelta(minutes=delay_config['delay_quantity'])
+    elif delay_config['delay_time_unit'] == 'hours':
+        delta = timedelta(hours=delay_config['delay_quantity'])
+    else:  # days
+        delta = timedelta(days=delay_config['delay_quantity'])
+    
+    return current_time + delta
+
+def update_confidence_level(current_level, is_correct):
+    """Update confidence level based on answer correctness"""
+    if not is_correct:
+        return 0
+    return min(current_level + 1, 5)
+
+def update_next_ask_timestamp(googlecreds, spreadsheet_url, sheet_name, row_index, next_ask_timestamp, confidence_level):
+    """Update both Next Ask Timestamp and Confidence Level for a specific row"""
+    try:
+        if DEBUG:
+            print(f"Debug - Updating row {row_index} with timestamp {next_ask_timestamp} and confidence {confidence_level}")
+            
+        client = gspread.authorize(googlecreds)
+        sh = client.open_by_url(spreadsheet_url)
+        worksheet = sh.worksheet(sheet_name)
+        
+        # Update Next Ask Timestamp (Column E) and Confidence Level (Column D)
+        worksheet.batch_update([
+            {'range': f'E{row_index}', 'values': [[next_ask_timestamp]]},
+            {'range': f'D{row_index}', 'values': [[confidence_level]]}
+        ])
+        
+        if DEBUG:
+            print("Debug - Update successful")
+            
+    except Exception as e:
+        if DEBUG:
+            print(f"Debug - Error updating row: {str(e)}")
+            st.error(f"Error updating row: {str(e)}")
 
 def log_response_to_sheet(question_data, llm_response, timestamp):
     """Log the response to the SRSLog sheet"""
@@ -115,12 +172,14 @@ def log_response_to_sheet(question_data, llm_response, timestamp):
         # Parse LLM response as JSON
         result = json.loads(llm_response)
         
-        # Calculate next ask timestamp
-        if result['correct']:
-            next_ask = timestamp + timedelta(minutes=20)
-        else:
-            next_ask = timestamp + timedelta(minutes=10)
-            
+        # Get current confidence level
+        current_confidence = int(question_data['Confidence Level'])
+        
+        # Calculate new confidence level
+        new_confidence = update_confidence_level(current_confidence, result['correct'])
+        
+        # Calculate next ask timestamp based on new confidence
+        next_ask = calculate_next_timestamp(new_confidence, timestamp)
         next_ask_str = next_ask.strftime('%Y-%m-%d %H:%M:%S')
             
         # Prepare the log entry
@@ -129,92 +188,63 @@ def log_response_to_sheet(question_data, llm_response, timestamp):
             'Prompt': [question_data['Prompt']],
             'Correct Answer': [question_data['Correct Answer']],
             'Asked Timestamp': [timestamp.strftime('%Y-%m-%d %H:%M:%S')],
-            'Image Answer': [result.get('image_answer', '')],  
+            'Image Answer': [result.get('image_answer', '')],  # Get image_answer from LLM response
             'Result': ['Correct' if result['correct'] else 'Incorrect'],
-            'Result Details': ['Correct' if result['correct'] else result['user_message']],
+            'Result Details': [result.get('user_message', 'No details provided')],
+            'Confidence Level Before': [current_confidence],
+            'Confidence Level After': [new_confidence],
             'Next Ask Timestamp': [next_ask_str]
         })
         
         if DEBUG:
             print("Debug - Log data:")
             print(log_data)
+            print("Debug - Image Answer from LLM:", result.get('image_answer', ''))
+            print("Debug - Result Details:", result.get('user_message', 'No details provided'))
         
         # Write to SRSLog sheet
-        write_df_to_google_sheet(
-            googlecreds,
-            spreadsheet_url,
-            'SRSLog',
-            log_data,
-            flag_append=True
-        )
+        write_df_to_google_sheet(googlecreds, 
+                               spreadsheet_url, 
+                               'SRSLog',
+                               log_data,
+                               flag_append=True)
         
-        # Update the Next Ask Timestamp in SRSNext
-        # Add 2 to account for header row and 0-based index
+        # Update the Next Ask Timestamp and Confidence Level in SRSNext
         row_index = st.session_state.current_question_index + 2
         update_next_ask_timestamp(
             googlecreds,
             spreadsheet_url,
             sheet_name_SRSNext,
             row_index,
-            next_ask_str
+            next_ask_str,
+            new_confidence
         )
         
         if DEBUG:
-            st.write("Debug - Logged response to SRSLog and updated SRSNext")
+            print(f"Debug - Updated confidence level from {current_confidence} to {new_confidence}")
             
     except Exception as e:
         if DEBUG:
+            print(f"Debug - Error logging response: {str(e)}")
             st.error(f"Error logging response: {str(e)}")
-
-def update_next_ask_timestamp(googlecreds, spreadsheet_url, sheet_name, row_index, next_ask_timestamp):
-    """Update the Next Ask Timestamp for a specific row in SRSNext sheet.
-    
-    Args:
-        googlecreds: Google credentials
-        spreadsheet_url: URL of the spreadsheet
-        sheet_name: Name of the sheet (SRSNext)
-        row_index: The row number to update (1-based)
-        next_ask_timestamp: The new timestamp value
-    """
-    try:
-        if DEBUG:
-            print(f"Debug - Updating Next Ask Timestamp in {sheet_name}")
-            print(f"Debug - Row index: {row_index}")
-            print(f"Debug - New timestamp: {next_ask_timestamp}")
-            
-        # Setup the credentials and get worksheet
-        client = gspread.authorize(googlecreds)
-        sh = client.open_by_url(spreadsheet_url)
-        worksheet = sh.worksheet(sheet_name)
-        
-        if DEBUG:
-            print(f"Debug - Got worksheet: {sheet_name}")
-            print(f"Debug - Current values:")
-            current = worksheet.get(f'D{row_index}')
-            print(f"Debug - Current value at D{row_index}: {current}")
-        
-        # Column D is the Next Ask Timestamp column
-        # Convert row_index to A1 notation for column D
-        cell = f'D{row_index}'
-        
-        # Update the cell - needs to be in format [[value]] for single cell
-        worksheet.update(cell, [[next_ask_timestamp]])
-        
-        if DEBUG:
-            print(f"Debug - Updated cell {cell} to {next_ask_timestamp}")
-            new_value = worksheet.get(cell)
-            print(f"Debug - New value after update: {new_value}")
-            
-    except Exception as e:
-        if DEBUG:
-            print(f"Debug - Error updating Next Ask Timestamp: {str(e)}")
-            st.error(f"Error updating Next Ask Timestamp: {str(e)}")
 
 def move_to_next_question():
     """Move to the next question and reset the canvas"""
+    if DEBUG:
+        print("Debug - Moving to next question")
+        print(f"Debug - Current index: {st.session_state.current_question_index}")
+        
+    # Reset all relevant session state
     st.session_state.current_question_index += 1
     st.session_state.canvas_key += 1
     st.session_state.llm_response = None
+    st.session_state.current_image = None
+    st.session_state.show_next_button = False
+    
+    if DEBUG:
+        print(f"Debug - New index: {st.session_state.current_question_index}")
+    
+    # Force a complete rerun of the app
     st.rerun()
 
 # Function to read Google Sheet and display as dataframe
@@ -389,15 +419,15 @@ try:
         prompt = current_question['Prompt']
         correct_answer = current_question['Correct Answer']
         
-        # Show progress
-        st.progress((st.session_state.current_question_index) / num_prompts, 
-                   text=f"Progress: {st.session_state.current_question_index + 1}/{num_prompts}")
-        
+        # Display progress
+        if active_questions is not None and len(active_questions) > 0:
+            progress = st.progress(st.session_state.current_question_index / len(active_questions))
+            st.write(f"Question {st.session_state.current_question_index + 1} of {len(active_questions)}")
+
         # Display the prompt
-        st.header("Practice Question")
-        st.write(prompt)
+        st.write(f"### {current_question['Prompt']}")
         
-        # Drawing canvas for user input
+        # Create canvas
         canvas_result = st_canvas(
             stroke_width=4,
             stroke_color="#37384c",
@@ -406,7 +436,7 @@ try:
             drawing_mode="freedraw",
             key=f"canvas_{st.session_state.canvas_key}",
         )
-
+        
         # Create a "Check" button to trigger LLM analysis
         if st.button("Check"):
             # Create status box for LLM response
@@ -423,8 +453,8 @@ try:
                     # Prepare message based on provider
                     provider = SELECTED_MODEL.split(":")[0]
                     prompt_text = LLM_PROMPT_TEMPLATE.format(
-                        prompt=prompt,
-                        correct_answer=correct_answer
+                        prompt=current_question['Prompt'],
+                        correct_answer=current_question['Correct Answer']
                     )
                     
                     if DEBUG:
@@ -510,11 +540,12 @@ try:
                         st.error(f"Error: {str(e)}")
                     st.error("An error occurred while processing your response")
                     status.update(label="Error occurred!", state="error", expanded=True)
-
     else:
         if len(active_questions) == 0:
             st.info("No questions are due at this time.")
-        
+        elif st.session_state.current_question_index >= len(active_questions):
+            st.success("Congratulations! You've completed all your practice questions!")
+    
     if DEBUG:
         st.subheader("All Questions")
         st.dataframe(active_questions)

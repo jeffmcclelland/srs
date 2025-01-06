@@ -1,8 +1,8 @@
 [theme]
-primaryColor = "#60a0f8"
-backgroundColor = "#37384c"
-secondaryBackgroundColor = "#5E5F6F"
-textColor = "#FFFFFF"
+primaryColor = "#aec3b0"
+backgroundColor = "#124559"
+secondaryBackgroundColor = "#598392"
+textColor = "#eff6e0"
 font = "sans serif"
 base = "dark"
 
@@ -11,6 +11,3 @@ gatherUsageStats = false
 
 [client]
 toolbarMode = "minimal"
-
-[runner]
-fastRerenderThresholdMs = 0
