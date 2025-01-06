@@ -17,6 +17,8 @@ from datetime import datetime, timedelta
 import json
 import pytz
 import random
+from urllib.parse import urlencode
+import time
 
 # Configure Streamlit page - MUST BE FIRST STREAMLIT COMMAND
 st.set_page_config(
@@ -155,6 +157,7 @@ The correct answer in English is: '{correct_answer}'
 This is a test of their spelling abilities. Note: 
   - Capitalisation doesn't matter but the spelling should be exactly correct. 
   - Punctuation like commas and exclamation marks don't matter. 
+  - If there are multiple correct answers provided (e.g. father / dad) and the user writes either of those, consider it correct.
 - Congratulate the user if the writing in the image matches. 
 - If it does not match, then indicate the errors that the user made. For instance which letters were missing or incorrect. 
 - If it's not possible to read any letters from the image, indicate that the user should try writing it again. 
@@ -189,10 +192,10 @@ os.environ["GEMINI_API_KEY"] = st.secrets["GEMINI_API_KEY"]
 client = ai.Client()
 
 # Initialize session state variables
-if 'canvas_key' not in st.session_state:
-    st.session_state.canvas_key = 0
 if 'current_question_index' not in st.session_state:
     st.session_state.current_question_index = 0
+if 'canvas_key' not in st.session_state:
+    st.session_state.canvas_key = 0
 if 'active_questions' not in st.session_state:
     st.session_state.active_questions = None
 if 'llm_response' not in st.session_state:
@@ -363,21 +366,24 @@ def log_response_to_sheet(question_data, llm_response, timestamp):
 
 def move_to_next_question():
     """Move to the next question and reset the canvas"""
-    if DEBUG:
-        print("Debug - Moving to next question")
-        print(f"Debug - Current index: {st.session_state.current_question_index}")
-        
-    # Reset all relevant session state
+    print("\n=== Debug: move_to_next_question called ===")
+    print(f"Before changes:")
+    print(f"- current_question_index: {st.session_state.current_question_index}")
+    print(f"- canvas_key: {st.session_state.canvas_key}")
+    
+    # Increment question index
     st.session_state.current_question_index += 1
+    # Force canvas refresh
     st.session_state.canvas_key += 1
+    # Clear response state
     st.session_state.llm_response = None
     st.session_state.current_image = None
-    st.session_state.show_next_button = False
     
-    if DEBUG:
-        print(f"Debug - New index: {st.session_state.current_question_index}")
+    print(f"\nAfter changes:")
+    print(f"- current_question_index: {st.session_state.current_question_index}")
+    print(f"- canvas_key: {st.session_state.canvas_key}")
     
-    # Force a complete rerun of the app
+    print("\nTriggering rerun...")
     st.rerun()
 
 # Function to read Google Sheet and display as dataframe
@@ -525,36 +531,49 @@ try:
             st.rerun()
             
     else:
-        # Show "Change Sets" button
-        if st.button("Change Sets", type="secondary"):
+        # Show "Change Sets" button and Reshuffle button side by side
+        col1, col2 = st.columns(2)
+        if col1.button("Change Sets", type="secondary"):
             toggle_study_mode()
             st.rerun()
-            
+        if col2.button("Reshuffle Questions", type="secondary"):
+            st.session_state.active_questions = None
+            st.rerun()
+
         # Only read the sheet if we haven't loaded questions yet
         if st.session_state.active_questions is None:
+            print("\n=== Debug: Loading active questions ===")
             # Read the sheet data
             all_questions = read_sheet_to_df(googlecreds, spreadsheet_url, sheet_name_SRSNext, DATA_RANGE)
+            print(f"Total questions from sheet: {len(all_questions)}")
             
             # Filter questions based on selected sets
             active_questions = [q for q in all_questions if st.session_state.selected_sets.get(q['Set'], False)]
+            print(f"Filtered active questions: {len(active_questions)}")
             
             # Randomly shuffle questions
             random.shuffle(active_questions)
+            print("Questions shuffled")
             
             st.session_state.active_questions = active_questions
-        
+            print("Active questions stored in session state")
+
         active_questions = st.session_state.active_questions
-        
+
         # Display number of prompts at the top
         num_prompts = len(active_questions) if active_questions else 0
         if num_prompts > 0:
             st.markdown(f"You have {num_prompts} word{'s' if num_prompts > 1 else ''} to practice today!")
         
         if len(active_questions or []) > 0 and st.session_state.current_question_index < len(active_questions):
-            # Get the current question
+            print(f"\n=== Debug: Displaying question ===")
+            print(f"Current index: {st.session_state.current_question_index}")
+            print(f"Total questions: {len(active_questions)}")
+            
             current_question = active_questions[st.session_state.current_question_index]
             prompt = current_question['Prompt']
             correct_answer = current_question['Correct Answer']
+            print(f"Current prompt: {prompt}")
             
             # Display progress
             if active_questions is not None and len(active_questions) > 0:
@@ -569,7 +588,7 @@ try:
             theme_secondary_bg = current_theme["secondaryBackgroundColor"]
             theme_primary_color = current_theme["primaryColor"]
             
-            # Create canvas
+            # Create the canvas
             canvas_result = st_canvas(
                 stroke_width=6,
                 stroke_color=theme_primary_color,  
@@ -676,9 +695,26 @@ try:
                             # Display the response
                             st.write("Response:", result['user_message'])
                             
-                            if st.button("Next Question",type="primary"):
-                                move_to_next_question()
-                                st.rerun()
+                            print("\n=== Debug: Setting up Next Question button ===")
+                            
+                            def increment_question():
+                                print("\n=== Debug: increment_question called ===")
+                                print(f"Before: current_question_index = {st.session_state.current_question_index}")
+                                st.session_state.current_question_index += 1
+                                st.session_state.canvas_key += 1
+                                print(f"After: current_question_index = {st.session_state.current_question_index}")
+                            
+                            # Create a container for consistent button placement
+                            button_container = st.container()
+                            with button_container:
+                                col1, col2, col3 = st.columns([1,2,1])
+                                with col2:
+                                    if st.button("Next Question", 
+                                               type="primary", 
+                                               key=f"next_{st.session_state.current_question_index}",
+                                               on_click=increment_question):
+                                        print("Button clicked, triggering rerun")
+                                        st.rerun()
                         
                         status.update(label="Analysis complete!", state="complete", expanded=True)
                     
