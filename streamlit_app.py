@@ -267,24 +267,31 @@ def update_confidence_level(current_level, is_correct):
         return 0
     return min(current_level + 1, 5)
 
-def update_next_ask_timestamp(googlecreds, spreadsheet_url, sheet_name, row_index, next_ask_timestamp, confidence_level):
+def update_next_ask_timestamp(googlecreds, spreadsheet_url, sheet_name, prompt_id, next_ask_timestamp, confidence_level):
     """Update both Next Ask Timestamp and Confidence Level for a specific row"""
     try:
         if DEBUG:
-            print(f"Debug - Updating row {row_index} with timestamp {next_ask_timestamp} and confidence {confidence_level}")
+            print(f"Debug - Updating row {prompt_id} with timestamp {next_ask_timestamp} and confidence {confidence_level}")
             
         client = gspread.authorize(googlecreds)
         sh = client.open_by_url(spreadsheet_url)
         worksheet = sh.worksheet(sheet_name)
         
-        # Update Next Ask Timestamp (Column E) and Confidence Level (Column D)
-        worksheet.batch_update([
-            {'range': f'E{row_index}', 'values': [[next_ask_timestamp]]},
-            {'range': f'D{row_index}', 'values': [[confidence_level]]}
-        ])
-        
-        if DEBUG:
-            print("Debug - Update successful")
+        # Find the correct row by Prompt ID
+        cell = worksheet.find(str(prompt_id), in_column=1)  # Search in first column (Prompt ID)
+        if cell:
+            actual_row = cell.row
+            # Update Confidence Level (Column E) and Next Ask Timestamp (Column F)
+            worksheet.batch_update([
+                {'range': f'E{actual_row}', 'values': [[confidence_level]]},
+                {'range': f'F{actual_row}', 'values': [[next_ask_timestamp]]}
+            ])
+            
+            if DEBUG:
+                print(f"Debug - Found row {actual_row} for Prompt ID {prompt_id}")
+                print("Debug - Update successful")
+        else:
+            raise Exception(f"Could not find row with Prompt ID {prompt_id}")
             
     except Exception as e:
         if DEBUG:
@@ -336,12 +343,12 @@ def log_response_to_sheet(question_data, llm_response, timestamp):
                                flag_append=True)
         
         # Update the Next Ask Timestamp and Confidence Level in SRSNext
-        row_index = st.session_state.current_question_index + 2
+        prompt_id = question_data['Prompt ID']
         update_next_ask_timestamp(
             googlecreds,
             spreadsheet_url,
             sheet_name_SRSNext,
-            row_index,
+            prompt_id,
             next_ask_str,
             new_confidence
         )
