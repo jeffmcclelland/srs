@@ -19,6 +19,8 @@ import pytz
 import random
 from urllib.parse import urlencode
 import time
+import tempfile
+from openai import OpenAI
 
 # Configure Streamlit page - MUST BE FIRST STREAMLIT COMMAND
 st.set_page_config(
@@ -33,7 +35,7 @@ DEBUG = False
 DATA_RANGE = "A:F"  # Prompt ID, Set, Prompt, Correct Answer, Confidence Level, Next Ask Timestamp
 SELECTED_MODEL = None  # Use the model from config
 TIMEZONE = pytz.timezone('EET')  # Add timezone constant
-ACTIVE_THEME = "theme1"  # Can be "theme1" or "theme2"
+ACTIVE_THEME = "theme2"  # Can be "theme1" or "theme2"
 
 # Load configuration
 with open('config.yaml', 'r') as f:
@@ -503,6 +505,55 @@ def write_df_to_google_sheet(googlecreds,
     if DEBUG:
         print(f"Finished writing to sheet '{spreadsheet_sheet_name}' - Append Mode: {'Yes' if flag_append else 'No'}")
 
+# Function to generate TTS audio
+def generate_tts_audio(text):
+    try:
+        if DEBUG:
+            print(f"\n=== Debug: TTS Generation ===")
+            print(f"Input text: {text}")
+            print(f"OpenAI API Key available: {'OPENAI_API_KEY' in os.environ}")
+            
+        client = OpenAI()
+        
+        if DEBUG:
+            print("OpenAI client created")
+            
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as temp_file:
+            if DEBUG:
+                print(f"Created temp file: {temp_file.name}")
+                
+            try:
+                response = client.audio.speech.with_streaming_response.create(
+                    model="tts-1",
+                    voice="alloy",
+                    input=text
+                )
+                if DEBUG:
+                    print("TTS API call successful")
+                    
+                with response as r:
+                    for chunk in r.iter_bytes():
+                        temp_file.write(chunk)
+                        
+                if DEBUG:
+                    print(f"Audio written to file: {temp_file.name}")
+                    print(f"File size: {os.path.getsize(temp_file.name)} bytes")
+                    
+                return temp_file.name
+                
+            except Exception as api_error:
+                if DEBUG:
+                    print(f"API Error details: {str(api_error)}")
+                    print(f"API Error type: {type(api_error)}")
+                raise api_error
+                
+    except Exception as e:
+        error_msg = f"Error generating audio: {str(e)}\nError type: {type(e)}"
+        if DEBUG:
+            print(f"Error in TTS generation: {error_msg}")
+        st.error(error_msg)
+        return None
+
 # Add heading with padding
 st.markdown(
     "<div style='padding-top: 1rem;'><h2 style='text-align: center;'>Siiri SRS</h2></div>",
@@ -589,7 +640,51 @@ try:
                 st.write(f"Question {st.session_state.current_question_index + 1} of {len(active_questions)}")
 
             # Display the prompt
-            st.markdown("### Translate the following:")
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                st.markdown("### Translate the following:")
+            with col2:
+                if st.button("🔊 Listen", help="Listen to the correct answer"):
+                    audio_file = generate_tts_audio(current_question["Correct Answer"])
+                    if audio_file:
+                        try:
+                            if DEBUG:
+                                print(f"\n=== Debug: Audio Playback ===")
+                                print(f"Reading audio file: {audio_file}")
+                                print(f"File exists: {os.path.exists(audio_file)}")
+                                
+                            with open(audio_file, 'rb') as f:
+                                audio_bytes = f.read()
+                                if DEBUG:
+                                    print(f"Audio bytes read: {len(audio_bytes)}")
+                            
+                            try:
+                                if DEBUG:
+                                    print("Attempting to create audio player...")
+                                audio_player = st.audio(audio_bytes, format='audio/mpeg')
+                                if DEBUG:
+                                    print("Audio player created successfully")
+                                    print(f"Audio player type: {type(audio_player)}")
+                                
+                                # Store the audio bytes in session state to prevent garbage collection
+                                st.session_state.current_audio = audio_bytes
+                                
+                            except Exception as audio_error:
+                                if DEBUG:
+                                    print(f"Error creating audio player: {str(audio_error)}")
+                                    print(f"Error type: {type(audio_error)}")
+                                raise audio_error
+                                
+                            # Clean up the temporary file after successful playback
+                            os.unlink(audio_file)
+                            if DEBUG:
+                                print("Temporary file cleaned up")
+                                
+                        except Exception as e:
+                            if DEBUG:
+                                print(f"Error in audio playback: {str(e)}")
+                            st.error(f"Error playing audio: {str(e)}")
+            
             st.markdown(f'<h1 style="color: {current_theme["primaryColor"]}">{current_question["Prompt"]}</h1>', unsafe_allow_html=True)
             
             # Get theme colors from our theme dictionary
@@ -609,7 +704,7 @@ try:
             )
             
             # Create two columns for buttons
-            col1, col2 = st.columns([1, 8])
+            col1, col2 = st.columns([1, 7])
             
             # Clear button in left column
             if col1.button("Clear",type="secondary"):
