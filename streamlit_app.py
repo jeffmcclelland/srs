@@ -212,6 +212,8 @@ if 'selected_sets' not in st.session_state:
     st.session_state.selected_sets = {}
 if 'study_mode' not in st.session_state:
     st.session_state.study_mode = False
+if 'retry_count' not in st.session_state:
+    st.session_state.retry_count = 0
 
 def toggle_study_mode():
     st.session_state.study_mode = not st.session_state.study_mode
@@ -627,6 +629,10 @@ try:
                         image.save(buffered, format="PNG")
                         img_str = base64.b64encode(buffered.getvalue()).decode()
                         
+                        # Initialize retry_count in session state if not exists
+                        if 'retry_count' not in st.session_state:
+                            st.session_state.retry_count = 0
+                        
                         # Prepare message based on provider
                         provider = SELECTED_MODEL.split(":")[0]
                         prompt_text = LLM_PROMPT_TEMPLATE.format(
@@ -693,16 +699,33 @@ try:
                             # Clear canvas for retry
                             st.session_state.canvas_key += 1
                             st.rerun()
+                        elif not result['correct'] and st.session_state.retry_count == 0:
+                            st.session_state.retry_count += 1
+                            st.error("That's not quite right. Would you like to try again?")
+                            
+                            # Create a container for retry button
+                            retry_container = st.container()
+                            with retry_container:
+                                retry_col1, retry_col2, retry_col3 = st.columns([1,2,1])
+                                with retry_col2:
+                                    # Create a form for the retry button
+                                    with st.form(key='retry_form'):
+                                        if st.form_submit_button("Retry", type="primary"):
+                                            st.session_state.canvas_key += 1
+                                            st.rerun()
                         else:
-                            # Log the response
+                            # Log the response and proceed as normal
                             current_time = datetime.now(TIMEZONE)
                             log_response_to_sheet(current_question, llm_response, current_time)
                             
-                            # Display the response
+                            # Only show response if it's correct or this was the retry attempt
                             st.write("Response:", result['user_message'])
                             
                             if DEBUG:
                                 print("\n=== Debug: Setting up Next Question button ===")
+                            
+                            # Reset retry count for next question
+                            st.session_state.retry_count = 0
                             
                             def increment_question():
                                 if DEBUG:
