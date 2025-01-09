@@ -218,6 +218,28 @@ if 'study_mode' not in st.session_state:
     st.session_state.study_mode = False
 if 'retry_count' not in st.session_state:
     st.session_state.retry_count = 0
+if 'boost_gif' not in st.session_state:
+    st.session_state.boost_gif = None
+
+# Cache the DataFrames
+if 'df_boosters_cache' not in st.session_state:
+    st.session_state.df_boosters_cache = None
+    st.session_state.df_boosters_cache_time = None
+
+if 'df_srsnext_cache' not in st.session_state:
+    st.session_state.df_srsnext_cache = None
+    st.session_state.df_srsnext_cache_time = None
+
+def get_cached_df(cache_name, cache_time_name, ttl_seconds, fetch_func):
+    """Get DataFrame from cache or fetch if expired"""
+    current_time = time.time()
+    if (st.session_state[cache_name] is None or 
+        st.session_state[cache_time_name] is None or 
+        current_time - st.session_state[cache_time_name] > ttl_seconds):
+        # Cache expired or doesn't exist, fetch new data
+        st.session_state[cache_name] = fetch_func()
+        st.session_state[cache_time_name] = current_time
+    return st.session_state[cache_name]
 
 def toggle_study_mode():
     st.session_state.study_mode = not st.session_state.study_mode
@@ -370,6 +392,27 @@ def log_response_to_sheet(question_data, llm_response, timestamp):
             print(f"Debug - Error logging response: {str(e)}")
             st.error(f"Error logging response: {str(e)}")
 
+def get_random_boost_gif(boost_type):
+    if DEBUG:
+        st.write(f"Debug - Boosters DataFrame:", df_boosters)
+        st.write(f"Debug - Looking for boost_type:", boost_type)
+    
+    filtered_boosts = df_boosters[df_boosters['Boost type'] == boost_type]
+    
+    if DEBUG:
+        st.write(f"Debug - Filtered boosts:", filtered_boosts)
+        st.write(f"Debug - Number of matching boosts:", len(filtered_boosts))
+    
+    if not filtered_boosts.empty:
+        url = random.choice(filtered_boosts['Boost URL'].tolist())
+        if DEBUG:
+            st.write(f"Debug - Selected URL:", url)
+        return url
+    
+    if DEBUG:
+        st.write("Debug - No matching boosts found")
+    return None
+
 def move_to_next_question():
     """Move to the next question and reset the canvas"""
     if DEBUG:
@@ -385,6 +428,8 @@ def move_to_next_question():
     # Clear response state
     st.session_state.llm_response = None
     st.session_state.current_image = None
+    if 'boost_gif' in st.session_state:
+        st.session_state.boost_gif = None
     
     if DEBUG:
         print(f"\nAfter changes:")
@@ -419,45 +464,54 @@ def read_sheet_to_df(googlecreds, spreadsheet_url, sheet_name, data_range):
             st.error("No data found in the sheet or data is incomplete")
             return []
 
-        # Create a DataFrame from the fetched data with correct column order
-        df = pd.DataFrame(data[1:], columns=['Prompt ID', 'Set', 'Prompt', 'Correct Answer', 'Confidence Level', 'Next Ask Timestamp'])
+        # Create a DataFrame from the fetched data
+        df = pd.DataFrame(data[1:], columns=data[0])
 
         if DEBUG:
             st.write("DataFrame shape:", df.shape)
             st.write("DataFrame columns:", df.columns)
             st.write("First row of DataFrame:", df.iloc[0] if not df.empty else "DataFrame is empty")
 
-        # Clean and convert Next Ask Timestamp
-        df['Next Ask Timestamp'] = df['Next Ask Timestamp'].apply(lambda x: x.strip("'") if isinstance(x, str) else x)  # Remove any leading/trailing apostrophes
-        df['Next Ask Timestamp'] = pd.to_datetime(df['Next Ask Timestamp'], format='%Y-%m-%d %H:%M:%S')
-        # Localize timestamps to EET timezone
-        df['Next Ask Timestamp'] = df['Next Ask Timestamp'].dt.tz_localize('EET')
-        
-        # Get current time in EET
-        current_time = datetime.now(TIMEZONE)
-        
-        if DEBUG:
-            st.write("Current time:", current_time)
-            st.write("First timestamp after conversion:", df['Next Ask Timestamp'].iloc[0] if not df.empty else "No timestamps")
-            st.write("Timezone of current time:", current_time.tzinfo)
-            st.write("Timezone of first timestamp:", df['Next Ask Timestamp'].iloc[0].tzinfo if not df.empty else "No timestamps")
+        # If this is the SRSNext sheet, process the timestamps
+        if sheet_name == sheet_name_SRSNext:
+            # Clean and convert Next Ask Timestamp
+            df['Next Ask Timestamp'] = df['Next Ask Timestamp'].apply(lambda x: x.strip("'") if isinstance(x, str) else x)
+            df['Next Ask Timestamp'] = pd.to_datetime(df['Next Ask Timestamp'], format='%Y-%m-%d %H:%M:%S')
+            # Localize timestamps to EET timezone
+            df['Next Ask Timestamp'] = df['Next Ask Timestamp'].dt.tz_localize('EET')
+            
+            # Get current time in EET
+            current_time = datetime.now(TIMEZONE)
+            
+            if DEBUG:
+                st.write("Current time:", current_time)
+                st.write("First timestamp after conversion:", df['Next Ask Timestamp'].iloc[0] if not df.empty else "No timestamps")
+                st.write("Timezone of current time:", current_time.tzinfo)
+                st.write("Timezone of first timestamp:", df['Next Ask Timestamp'].iloc[0].tzinfo if not df.empty else "No timestamps")
 
-        # Filter questions due for review
-        active_questions = df[df['Next Ask Timestamp'] <= current_time].to_dict('records')
+            # Filter questions due for review
+            active_questions = df[df['Next Ask Timestamp'] <= current_time].to_dict('records')
 
-        if DEBUG:
-            st.write("Number of active questions:", len(active_questions))
-            if active_questions:
-                st.write("First active question:", active_questions[0])
+            if DEBUG:
+                st.write("Number of active questions:", len(active_questions))
+                if active_questions:
+                    st.write("First active question:", active_questions[0])
 
-        return active_questions
+            return active_questions
+        else:
+            # For other sheets, return the DataFrame as is
+            return df
 
     except Exception as e:
         st.error(f"Error reading spreadsheet: {str(e)}")
         if DEBUG:
             import traceback
             st.write("Full error:", traceback.format_exc())
-        return []
+        # Return empty list for SRSNext sheet, empty DataFrame for other sheets
+        if sheet_name == sheet_name_SRSNext:
+            return []  # Empty list for active questions
+        else:
+            return pd.DataFrame()  # Empty DataFrame for other sheets
 
 # Function to write dataframe to Google Sheet
 def write_df_to_google_sheet(googlecreds, 
@@ -556,17 +610,21 @@ def generate_tts_audio(text):
         st.error(error_msg)
         return None
 
-# Add heading with padding
-st.markdown(
-    "<div style='padding-top: 1rem;'><h2 style='text-align: center;'>Siiri SRS</h2></div>",
-    unsafe_allow_html=True,
-)
-
-# Main app logic
 try:
-    # Read the sheets
-    df = read_sheet_to_df(googlecreds, spreadsheet_url, sheet_name_SRSNext, DATA_RANGE)
-    df_boosters = read_sheet_to_df(googlecreds, spreadsheet_url, sheet_name_Boosters, BOOSTERS_RANGE)
+    # Read the sheets with caching
+    df = get_cached_df(
+        'df_srsnext_cache',
+        'df_srsnext_cache_time',
+        540,  # 9 minutes TTL
+        lambda: read_sheet_to_df(googlecreds, spreadsheet_url, sheet_name_SRSNext, DATA_RANGE)
+    )
+    
+    df_boosters = get_cached_df(
+        'df_boosters_cache',
+        'df_boosters_cache_time',
+        3600,  # 1 hour TTL
+        lambda: read_sheet_to_df(googlecreds, spreadsheet_url, sheet_name_Boosters, BOOSTERS_RANGE)
+    )
     
     # If we're not in study mode, show set selection
     if not st.session_state.study_mode:
@@ -819,11 +877,62 @@ try:
                             current_time = datetime.now(TIMEZONE)
                             log_response_to_sheet(current_question, llm_response, current_time)
                             
-                            # Only show response if it's correct or this was the retry attempt
-                            st.write("Response:", result['user_message'])
+                            print("\n=== Debug: Processing response ===")
+                            print(f"Result correct: {result['correct']}")
+                            print(f"Result try_again: {result['try_again']}")
+                            print(f"boost_gif in session state: {'boost_gif' in st.session_state}")
                             
-                            if DEBUG:
-                                print("\n=== Debug: Setting up Next Question button ===")
+                            # Clear any existing boost_gif
+                            if 'boost_gif' in st.session_state:
+                                print("Clearing existing boost_gif from session state")
+                                st.session_state.pop('boost_gif')
+                            
+                            # Display success/error message
+                            if result['correct']:
+                                print("Processing correct answer")
+                                st.success(result['user_message'])
+                                print("\n=== Debug: Processing correct answer boost ===")
+                                if DEBUG:
+                                    st.write("Debug - Getting correct boost GIF")
+                                boost_url = get_random_boost_gif("Correct")
+                                print(f"Got boost URL: {boost_url}")
+                                if boost_url:
+                                    if DEBUG:
+                                        st.write("Debug - Setting boost_gif in session state:", boost_url)
+                                    st.session_state.boost_gif = boost_url
+                                    print(f"Session state after setting boost: {st.session_state}")
+                            else:
+                                print("Processing incorrect answer")
+                                st.error(result['user_message'])
+                                print("\n=== Debug: Processing incorrect answer boost ===")
+                                if DEBUG:
+                                    st.write("Debug - Getting incorrect boost GIF")
+                                boost_url = get_random_boost_gif("Incorrect")
+                                print(f"Got boost URL: {boost_url}")
+                                if boost_url:
+                                    if DEBUG:
+                                        st.write("Debug - Setting boost_gif in session state:", boost_url)
+                                    st.session_state.boost_gif = boost_url
+                                    print(f"Session state after setting boost: {st.session_state}")
+                            
+                            print("\n=== Debug: Before GIF display ===")
+                            print(f"boost_gif in session state: {'boost_gif' in st.session_state}")
+                            if 'boost_gif' in st.session_state:
+                                print(f"boost_gif value: {st.session_state.boost_gif}")
+                            
+                            # Display boost GIF if available
+                            if 'boost_gif' in st.session_state and st.session_state.boost_gif:
+                                print("\n=== Debug: Attempting to display boost GIF ===")
+                                if DEBUG:
+                                    st.write("Debug - Attempting to display GIF:", st.session_state.boost_gif)
+                                    print(f"Current boost_gif value: {st.session_state.boost_gif}")
+                                try:
+                                    st.image(st.session_state.boost_gif)
+                                    print("Image display attempted")
+                                except Exception as e:
+                                    print(f"Error displaying image: {str(e)}")
+                                    if DEBUG:
+                                        st.error(f"Error displaying GIF: {str(e)}")
                             
                             # Reset retry count for next question
                             st.session_state.retry_count = 0
@@ -836,6 +945,8 @@ try:
                                 st.session_state.canvas_key += 1
                                 if DEBUG:
                                     print(f"After: current_question_index = {st.session_state.current_question_index}")
+                                if 'boost_gif' in st.session_state:
+                                    st.session_state.boost_gif = None
                             
                             # Create a container for consistent button placement
                             button_container = st.container()
@@ -849,7 +960,7 @@ try:
                                         if DEBUG:
                                             print("Button clicked, triggering rerun")
                                         st.rerun()
-                        
+                            
                         status.update(label="Analysis complete!", state="complete", expanded=True)
                     
                     except Exception as e:
