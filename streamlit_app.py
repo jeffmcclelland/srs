@@ -36,6 +36,7 @@ DATA_RANGE = "A:F"  # Prompt ID, Set, Prompt, Correct Answer, Confidence Level, 
 SELECTED_MODEL = None  # Use the model from config
 TIMEZONE = pytz.timezone('EET')  # Add timezone constant
 ACTIVE_THEME = "theme2"  # Can be "theme1" or "theme2"
+BOOSTERS_RANGE = "A:B"  # Range for Boost type and Boost URL columns
 
 # Load configuration
 with open('config.yaml', 'r') as f:
@@ -45,6 +46,7 @@ with open('config.yaml', 'r') as f:
 spreadsheet_url = "https://docs.google.com/spreadsheets/d/1NyaBvbHef_eX1lBYtTPzZJ2fBSPRG2yYxitTeEoJy-M/edit?gid=324250006#gid=324250006"
 sheet_name_SRSNext = "SRSNext"
 sheet_name_SRSLog = "SRSLog"
+sheet_name_Boosters = "Boosters"  # Adding the Boosters sheet configuration
 SELECTED_MODEL = config.get('model', SELECTED_MODEL)
 
 # Theme definitions
@@ -562,6 +564,10 @@ st.markdown(
 
 # Main app logic
 try:
+    # Read the sheets
+    df = read_sheet_to_df(googlecreds, spreadsheet_url, sheet_name_SRSNext, DATA_RANGE)
+    df_boosters = read_sheet_to_df(googlecreds, spreadsheet_url, sheet_name_Boosters, BOOSTERS_RANGE)
+    
     # If we're not in study mode, show set selection
     if not st.session_state.study_mode:
         st.markdown("### Choose Sets to Study")
