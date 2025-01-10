@@ -21,6 +21,7 @@ from urllib.parse import urlencode
 import time
 import tempfile
 from openai import OpenAI
+from src.config.settings import *
 
 # Configure Streamlit page - MUST BE FIRST STREAMLIT COMMAND
 st.set_page_config(
@@ -30,68 +31,16 @@ st.set_page_config(
     menu_items={},
 )
 
-# Constants
-DEBUG = False
-DATA_RANGE = "A:F"  # Prompt ID, Set, Prompt, Correct Answer, Confidence Level, Next Ask Timestamp
-SELECTED_MODEL = None  # Use the model from config
-TIMEZONE = pytz.timezone('EET')  # Add timezone constant
-ACTIVE_THEME = "theme2"  # Can be "theme1" or "theme2"
-BOOSTERS_RANGE = "A:B"  # Range for Boost type and Boost URL columns
-
-# Constants for boost display frequency
-SHOW_BOOST_FREQUENCY_CORRECT = 5  # Show boost 1 out of 5 times for correct answers
-SHOW_BOOST_FREQUENCY_INCORRECT = 3  # Show boost 1 out of 3 times for incorrect answers
-
-# Load configuration
-with open('config.yaml', 'r') as f:
-    config = yaml.safe_load(f)
-    
-# Spreadsheet configuration
-spreadsheet_url = "https://docs.google.com/spreadsheets/d/1NyaBvbHef_eX1lBYtTPzZJ2fBSPRG2yYxitTeEoJy-M/edit?gid=324250006#gid=324250006"
-sheet_name_SRSNext = "SRSNext"
-sheet_name_SRSLog = "SRSLog"
-sheet_name_Boosters = "Boosters"  # Adding the Boosters sheet configuration
-SELECTED_MODEL = config.get('model', SELECTED_MODEL)
-
-# Theme definitions
-THEMES = {
-    "theme1": {
-        "primaryColor": "#eb5e28",
-        "backgroundColor": "#fffcf2",
-        "secondaryBackgroundColor": "#fff",
-        "textColor": "#403d39"
-    },
-    "theme2": {
-        "primaryColor": "#ff6700",
-        "backgroundColor": "#fff",
-        "secondaryBackgroundColor": "#ebebeb",
-        "textColor": "#004e98"
-    }
-}
-
-# SRS time delay configuration
-srs_time_delays = [
-    {"confidence_level": 0, "delay_quantity": 10, "delay_time_unit": 'minutes'},
-    {"confidence_level": 1, "delay_quantity": 8,  "delay_time_unit": 'hours'},
-    {"confidence_level": 2, "delay_quantity": 3,  "delay_time_unit": 'days'},
-    {"confidence_level": 3, "delay_quantity": 5,  "delay_time_unit": 'days'},
-    {"confidence_level": 4, "delay_quantity": 10, "delay_time_unit": 'days'},
-    {"confidence_level": 5, "delay_quantity": 20, "delay_time_unit": 'days'},
-]
-
-# Get current theme
-current_theme = THEMES[ACTIVE_THEME]
-
 # Apply theme
 st.markdown(
     f"""
     <style>
         /* Theme colors */
         :root {{
-            --primary-color: {current_theme["primaryColor"]};
-            --background-color: {current_theme["backgroundColor"]};
-            --secondary-background-color: {current_theme["secondaryBackgroundColor"]};
-            --text-color: {current_theme["textColor"]};
+            --primary-color: {CURRENT_THEME["primaryColor"]};
+            --background-color: {CURRENT_THEME["backgroundColor"]};
+            --secondary-background-color: {CURRENT_THEME["secondaryBackgroundColor"]};
+            --text-color: {CURRENT_THEME["textColor"]};
         }}
         
         /* Hide Streamlit's default top bar */
@@ -285,7 +234,7 @@ def get_available_sets(googlecreds, spreadsheet_url, sheet_name, data_range):
 
 def calculate_next_timestamp(confidence_level, current_time):
     """Calculate next ask timestamp based on confidence level"""
-    delay_config = next(d for d in srs_time_delays if d['confidence_level'] == confidence_level)
+    delay_config = next(d for d in SRS_TIME_DELAYS if d['confidence_level'] == confidence_level)
     
     if delay_config['delay_time_unit'] == 'minutes':
         delta = timedelta(minutes=delay_config['delay_quantity'])
@@ -372,8 +321,8 @@ def log_response_to_sheet(question_data, llm_response, timestamp):
         
         # Write to SRSLog sheet
         write_df_to_google_sheet(googlecreds, 
-                               spreadsheet_url, 
-                               'SRSLog',
+                               SPREADSHEET_URL, 
+                               SHEET_NAME_SRS_LOG,
                                log_data,
                                flag_append=True)
         
@@ -381,8 +330,8 @@ def log_response_to_sheet(question_data, llm_response, timestamp):
         prompt_id = question_data['Prompt ID']
         update_next_ask_timestamp(
             googlecreds,
-            spreadsheet_url,
-            sheet_name_SRSNext,
+            SPREADSHEET_URL,
+            SHEET_NAME_SRS_NEXT,
             prompt_id,
             next_ask_str,
             new_confidence
@@ -477,7 +426,7 @@ def read_sheet_to_df(googlecreds, spreadsheet_url, sheet_name, data_range):
             st.write("First row of DataFrame:", df.iloc[0] if not df.empty else "DataFrame is empty")
 
         # If this is the SRSNext sheet, process the timestamps
-        if sheet_name == sheet_name_SRSNext:
+        if sheet_name == SHEET_NAME_SRS_NEXT:
             # Clean and convert Next Ask Timestamp
             df['Next Ask Timestamp'] = df['Next Ask Timestamp'].apply(lambda x: x.strip("'") if isinstance(x, str) else x)
             df['Next Ask Timestamp'] = pd.to_datetime(df['Next Ask Timestamp'], format='%Y-%m-%d %H:%M:%S')
@@ -512,7 +461,7 @@ def read_sheet_to_df(googlecreds, spreadsheet_url, sheet_name, data_range):
             import traceback
             st.write("Full error:", traceback.format_exc())
         # Return empty list for SRSNext sheet, empty DataFrame for other sheets
-        if sheet_name == sheet_name_SRSNext:
+        if sheet_name == SHEET_NAME_SRS_NEXT:
             return []  # Empty list for active questions
         else:
             return pd.DataFrame()  # Empty DataFrame for other sheets
@@ -620,14 +569,14 @@ try:
         'df_srsnext_cache',
         'df_srsnext_cache_time',
         540,  # 9 minutes TTL
-        lambda: read_sheet_to_df(googlecreds, spreadsheet_url, sheet_name_SRSNext, DATA_RANGE)
+        lambda: read_sheet_to_df(googlecreds, SPREADSHEET_URL, SHEET_NAME_SRS_NEXT, DATA_RANGE)
     )
     
     df_boosters = get_cached_df(
         'df_boosters_cache',
         'df_boosters_cache_time',
         3600,  # 1 hour TTL
-        lambda: read_sheet_to_df(googlecreds, spreadsheet_url, sheet_name_Boosters, BOOSTERS_RANGE)
+        lambda: read_sheet_to_df(googlecreds, SPREADSHEET_URL, SHEET_NAME_BOOSTERS, BOOSTERS_RANGE)
     )
     
     # If we're not in study mode, show set selection
@@ -635,7 +584,7 @@ try:
         st.markdown("### Choose Sets to Study")
         
         # Get available sets and their counts
-        available_sets = get_available_sets(googlecreds, spreadsheet_url, sheet_name_SRSNext, DATA_RANGE)
+        available_sets = get_available_sets(googlecreds, SPREADSHEET_URL, SHEET_NAME_SRS_NEXT, DATA_RANGE)
         
         # Initialize selected_sets if empty
         if not st.session_state.selected_sets:
@@ -665,7 +614,7 @@ try:
             if DEBUG:
                 print("\n=== Debug: Loading active questions ===")
             # Read the sheet data
-            all_questions = read_sheet_to_df(googlecreds, spreadsheet_url, sheet_name_SRSNext, DATA_RANGE)
+            all_questions = read_sheet_to_df(googlecreds, SPREADSHEET_URL, SHEET_NAME_SRS_NEXT, DATA_RANGE)
             if DEBUG:
                 print(f"Total questions from sheet: {len(all_questions)}")
             
@@ -753,11 +702,11 @@ try:
                                 print(f"Error in audio playback: {str(e)}")
                             st.error(f"Error playing audio: {str(e)}")
             
-            st.markdown(f'<h1 style="color: {current_theme["primaryColor"]}">{current_question["Prompt"]}</h1>', unsafe_allow_html=True)
+            st.markdown(f'<h1 style="color: {CURRENT_THEME["primaryColor"]}">{current_question["Prompt"]}</h1>', unsafe_allow_html=True)
             
             # Get theme colors from our theme dictionary
-            theme_secondary_bg = current_theme["secondaryBackgroundColor"]
-            theme_primary_color = current_theme["primaryColor"]
+            theme_secondary_bg = CURRENT_THEME["secondaryBackgroundColor"]
+            theme_primary_color = CURRENT_THEME["primaryColor"]
             
             # Create the canvas
             canvas_result = st_canvas(
