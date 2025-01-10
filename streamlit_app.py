@@ -22,6 +22,7 @@ import time
 import tempfile
 from openai import OpenAI
 from src.config.settings import *
+from src.services.boost import get_random_boost_gif
 
 # Configure Streamlit page - MUST BE FIRST STREAMLIT COMMAND
 st.set_page_config(
@@ -345,24 +346,24 @@ def log_response_to_sheet(question_data, llm_response, timestamp):
             print(f"Debug - Error logging response: {str(e)}")
             st.error(f"Error logging response: {str(e)}")
 
-def get_random_boost_gif(boost_type):
-    if DEBUG:
+def get_random_boost_gif(boost_type, df_boosters, debug):
+    if debug:
         st.write(f"Debug - Boosters DataFrame:", df_boosters)
         st.write(f"Debug - Looking for boost_type:", boost_type)
     
     filtered_boosts = df_boosters[df_boosters['Boost type'] == boost_type]
     
-    if DEBUG:
+    if debug:
         st.write(f"Debug - Filtered boosts:", filtered_boosts)
         st.write(f"Debug - Number of matching boosts:", len(filtered_boosts))
     
     if not filtered_boosts.empty:
         url = random.choice(filtered_boosts['Boost URL'].tolist())
-        if DEBUG:
+        if debug:
             st.write(f"Debug - Selected URL:", url)
         return url
     
-    if DEBUG:
+    if debug:
         st.write("Debug - No matching boosts found")
     return None
 
@@ -847,7 +848,7 @@ try:
                                 print("\n=== Debug: Processing correct answer boost ===")
                                 if DEBUG:
                                     st.write("Debug - Getting correct boost GIF")
-                                boost_url = get_random_boost_gif("Correct")
+                                boost_url = get_random_boost_gif("Correct", df_boosters, DEBUG)
                                 print(f"Got boost URL: {boost_url}")
                                 if boost_url:
                                     if DEBUG:
@@ -860,7 +861,7 @@ try:
                                 print("\n=== Debug: Processing incorrect answer boost ===")
                                 if DEBUG:
                                     st.write("Debug - Getting incorrect boost GIF")
-                                boost_url = get_random_boost_gif("Incorrect")
+                                boost_url = get_random_boost_gif("Incorrect", df_boosters, DEBUG)
                                 print(f"Got boost URL: {boost_url}")
                                 if boost_url:
                                     if DEBUG:
