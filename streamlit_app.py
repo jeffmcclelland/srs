@@ -23,6 +23,7 @@ import tempfile
 from openai import OpenAI
 from src.config.settings import *
 from src.services.boost import get_random_boost_gif
+from src.utils.time_utils import calculate_next_timestamp, update_next_ask_timestamp
 
 # Configure Streamlit page - MUST BE FIRST STREAMLIT COMMAND
 st.set_page_config(
@@ -233,55 +234,11 @@ def get_available_sets(googlecreds, spreadsheet_url, sheet_name, data_range):
         st.error(f"Error reading sets: {str(e)}")
         return {}
 
-def calculate_next_timestamp(confidence_level, current_time):
-    """Calculate next ask timestamp based on confidence level"""
-    delay_config = next(d for d in SRS_TIME_DELAYS if d['confidence_level'] == confidence_level)
-    
-    if delay_config['delay_time_unit'] == 'minutes':
-        delta = timedelta(minutes=delay_config['delay_quantity'])
-    elif delay_config['delay_time_unit'] == 'hours':
-        delta = timedelta(hours=delay_config['delay_quantity'])
-    else:  # days
-        delta = timedelta(days=delay_config['delay_quantity'])
-    
-    return current_time + delta
-
 def update_confidence_level(current_level, is_correct):
     """Update confidence level based on answer correctness"""
     if not is_correct:
         return 0
     return min(current_level + 1, 5)
-
-def update_next_ask_timestamp(googlecreds, spreadsheet_url, sheet_name, prompt_id, next_ask_timestamp, confidence_level):
-    """Update both Next Ask Timestamp and Confidence Level for a specific row"""
-    try:
-        if DEBUG:
-            print(f"Debug - Updating row {prompt_id} with timestamp {next_ask_timestamp} and confidence {confidence_level}")
-            
-        client = gspread.authorize(googlecreds)
-        sh = client.open_by_url(spreadsheet_url)
-        worksheet = sh.worksheet(sheet_name)
-        
-        # Find the correct row by Prompt ID
-        cell = worksheet.find(str(prompt_id), in_column=1)  # Search in first column (Prompt ID)
-        if cell:
-            actual_row = cell.row
-            # Update Confidence Level (Column E) and Next Ask Timestamp (Column F)
-            worksheet.batch_update([
-                {'range': f'E{actual_row}', 'values': [[confidence_level]]},
-                {'range': f'F{actual_row}', 'values': [[next_ask_timestamp]]}
-            ])
-            
-            if DEBUG:
-                print(f"Debug - Found row {actual_row} for Prompt ID {prompt_id}")
-                print("Debug - Update successful")
-        else:
-            raise Exception(f"Could not find row with Prompt ID {prompt_id}")
-            
-    except Exception as e:
-        if DEBUG:
-            print(f"Debug - Error updating row: {str(e)}")
-            st.error(f"Error updating row: {str(e)}")
 
 def log_response_to_sheet(question_data, llm_response, timestamp):
     """Log the response to the SRSLog sheet"""
@@ -296,8 +253,8 @@ def log_response_to_sheet(question_data, llm_response, timestamp):
         new_confidence = update_confidence_level(current_confidence, result['correct'])
         
         # Calculate next ask timestamp based on new confidence
-        next_ask = calculate_next_timestamp(new_confidence, timestamp)
-        next_ask_str = next_ask.strftime('%Y-%m-%d %H:%M:%S')
+        next_ask_timestamp = calculate_next_timestamp(new_confidence, timestamp, SRS_TIME_DELAYS)
+        next_ask_str = next_ask_timestamp.strftime('%Y-%m-%d %H:%M:%S')
             
         # Prepare the log entry
         log_data = pd.DataFrame({
@@ -329,14 +286,7 @@ def log_response_to_sheet(question_data, llm_response, timestamp):
         
         # Update the Next Ask Timestamp and Confidence Level in SRSNext
         prompt_id = question_data['Prompt ID']
-        update_next_ask_timestamp(
-            googlecreds,
-            SPREADSHEET_URL,
-            SHEET_NAME_SRS_NEXT,
-            prompt_id,
-            next_ask_str,
-            new_confidence
-        )
+        update_next_ask_timestamp(googlecreds, SPREADSHEET_URL, SHEET_NAME_SRS_NEXT, prompt_id, next_ask_timestamp, new_confidence, DEBUG)
         
         if DEBUG:
             print(f"Debug - Updated confidence level from {current_confidence} to {new_confidence}")
