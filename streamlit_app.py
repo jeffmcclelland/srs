@@ -38,6 +38,10 @@ TIMEZONE = pytz.timezone('EET')  # Add timezone constant
 ACTIVE_THEME = "theme2"  # Can be "theme1" or "theme2"
 BOOSTERS_RANGE = "A:B"  # Range for Boost type and Boost URL columns
 
+# Constants for boost display frequency
+SHOW_BOOST_FREQUENCY_CORRECT = 5  # Show boost 1 out of 5 times for correct answers
+SHOW_BOOST_FREQUENCY_INCORRECT = 3  # Show boost 1 out of 3 times for incorrect answers
+
 # Load configuration
 with open('config.yaml', 'r') as f:
     config = yaml.safe_load(f)
@@ -922,17 +926,21 @@ try:
                             
                             # Display boost GIF if available
                             if 'boost_gif' in st.session_state and st.session_state.boost_gif:
-                                print("\n=== Debug: Attempting to display boost GIF ===")
-                                if DEBUG:
-                                    st.write("Debug - Attempting to display GIF:", st.session_state.boost_gif)
-                                    print(f"Current boost_gif value: {st.session_state.boost_gif}")
-                                try:
-                                    st.image(st.session_state.boost_gif)
-                                    print("Image display attempted")
-                                except Exception as e:
-                                    print(f"Error displaying image: {str(e)}")
+                                # For correct answers, show boost 1/5 times
+                                should_show_boost = random.randint(1, SHOW_BOOST_FREQUENCY_CORRECT if result['correct'] else SHOW_BOOST_FREQUENCY_INCORRECT) == 1
+                                
+                                if should_show_boost:
+                                    print("\n=== Debug: Attempting to display boost GIF ===")
                                     if DEBUG:
-                                        st.error(f"Error displaying GIF: {str(e)}")
+                                        st.write("Debug - Attempting to display GIF:", st.session_state.boost_gif)
+                                        print(f"Current boost_gif value: {st.session_state.boost_gif}")
+                                    try:
+                                        st.image(st.session_state.boost_gif)
+                                        print("Image display attempted")
+                                    except Exception as e:
+                                        print(f"Error displaying image: {str(e)}")
+                                        if DEBUG:
+                                            st.error(f"Error displaying GIF: {str(e)}")
                             
                             # Reset retry count for next question
                             st.session_state.retry_count = 0
