@@ -24,6 +24,7 @@ from openai import OpenAI
 from src.config.settings import *
 from src.services.boost import get_random_boost_gif
 from src.utils.time_utils import calculate_next_timestamp, update_next_ask_timestamp
+from src.utils.cache import get_cached_df
 
 # Configure Streamlit page - MUST BE FIRST STREAMLIT COMMAND
 st.set_page_config(
@@ -184,17 +185,6 @@ if 'df_boosters_cache' not in st.session_state:
 if 'df_srsnext_cache' not in st.session_state:
     st.session_state.df_srsnext_cache = None
     st.session_state.df_srsnext_cache_time = None
-
-def get_cached_df(cache_name, cache_time_name, ttl_seconds, fetch_func):
-    """Get DataFrame from cache or fetch if expired"""
-    current_time = time.time()
-    if (st.session_state[cache_name] is None or 
-        st.session_state[cache_time_name] is None or 
-        current_time - st.session_state[cache_time_name] > ttl_seconds):
-        # Cache expired or doesn't exist, fetch new data
-        st.session_state[cache_name] = fetch_func()
-        st.session_state[cache_time_name] = current_time
-    return st.session_state[cache_name]
 
 def toggle_study_mode():
     st.session_state.study_mode = not st.session_state.study_mode
