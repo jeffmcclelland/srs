@@ -24,9 +24,10 @@ from openai import OpenAI
 from src.config.settings import *
 from src.services.boost import get_random_boost_gif
 from src.services.tts import generate_tts_audio
-from src.utils.time_utils import calculate_next_timestamp, update_next_ask_timestamp
+from src.utils.time_utils import calculate_next_timestamp
 from src.utils.cache import get_cached_df
 from src.models.srs import toggle_study_mode, get_available_sets, update_confidence_level, increment_question, log_response_to_sheet
+from src.utils.sheets import write_df_to_google_sheet, update_next_ask_timestamp
 
 # Configure Streamlit page - MUST BE FIRST STREAMLIT COMMAND
 st.set_page_config(
@@ -151,7 +152,7 @@ os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
 os.environ["ANTHROPIC_API_KEY"] = st.secrets["ANTHROPIC_API_KEY"]
 os.environ["GEMINI_API_KEY"] = st.secrets["GEMINI_API_KEY"]
 
-client = ai.Client()
+ai_client = ai.Client()
 
 # Initialize session state variables
 if 'current_question_index' not in st.session_state:
@@ -459,13 +460,13 @@ try:
                 stroke_width=6,
                 stroke_color=theme_primary_color,  
                 background_color=theme_secondary_bg,  
-                height=300,
-                width=800,
+                height=CANVAS_HEIGHT,
+                width=CANVAS_WIDTH,
                 display_toolbar=False,
                 drawing_mode="freedraw",
                 key=f"canvas_{st.session_state.canvas_key}",
             )
-            
+
             # Create two columns for buttons
             col1, col2 = st.columns([1, 7])
             
@@ -533,7 +534,7 @@ try:
                             st.write("Debug - Model:", SELECTED_MODEL)
                         
                         # Query the LLM
-                        response = client.chat.completions.create(
+                        response = ai_client.chat.completions.create(
                             model=SELECTED_MODEL,
                             messages=messages,
                             temperature=0.5
@@ -574,7 +575,7 @@ try:
                         else:
                             # Log the response and proceed as normal
                             current_time = datetime.now(TIMEZONE)
-                            log_response_to_sheet(current_question, llm_response, current_time)
+                            log_response_to_sheet(client, current_question, llm_response, current_time)
                             
                             print("\n=== Debug: Processing response ===")
                             print(f"Result correct: {result['correct']}")
@@ -671,6 +672,10 @@ try:
                             st.error(f"Error: {str(e)}")
                         st.error("An error occurred while processing your response")
                         status.update(label="Error occurred!", state="error", expanded=True)
+            
+            # Add bottom spacing
+            st.empty().markdown(f'<div style="height: {BOTTOM_SPACING_PX}px"></div>', unsafe_allow_html=True)
+        
         else:
             if not active_questions or len(active_questions) == 0:
                 st.info("No questions are due at this time.")

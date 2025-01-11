@@ -59,5 +59,10 @@ SRS_TIME_DELAYS = [
 # Get current theme
 CURRENT_THEME = THEMES[ACTIVE_THEME]
 
+# UI settings
+CANVAS_HEIGHT = 400
+CANVAS_WIDTH = 1000
+BOTTOM_SPACING_PX = 200  # Bottom padding in pixels
+
 # Spreadsheet configuration
 SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1NyaBvbHef_eX1lBYtTPzZJ2fBSPRG2yYxitTeEoJy-M/edit?gid=324250006#gid=324250006"

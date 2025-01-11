@@ -1,9 +1,11 @@
-import gspread
 import pandas as pd
 from datetime import datetime
 import streamlit as st
 import json
-from src.config.settings import DEBUG, SHEET_NAME_SRS_LOG, SHEET_NAME_SRS_NEXT, SRS_TIME_DELAYS
+import gspread
+from src.config.settings import DEBUG, SHEET_NAME_SRS_LOG, SHEET_NAME_SRS_NEXT, SRS_TIME_DELAYS, SPREADSHEET_URL
+from src.utils.time_utils import calculate_next_timestamp
+from src.utils.sheets import write_df_to_google_sheet, update_next_ask_timestamp
 
 
 def toggle_study_mode():
@@ -65,7 +67,7 @@ def increment_question(DEBUG=False):
         st.session_state.boost_gif = None
 
 
-def log_response_to_sheet(question_data, llm_response, timestamp):
+def log_response_to_sheet(gspread_client, question_data, llm_response, timestamp):
     """Log the response to the SRSLog sheet"""
     try:
         # Parse LLM response as JSON
@@ -103,7 +105,7 @@ def log_response_to_sheet(question_data, llm_response, timestamp):
             print("Debug - Result Details:", result.get('user_message', 'No details provided'))
         
         # Write to SRSLog sheet
-        write_df_to_google_sheet(googlecreds, 
+        write_df_to_google_sheet(gspread_client, 
                                SPREADSHEET_URL, 
                                SHEET_NAME_SRS_LOG,
                                log_data,
@@ -111,7 +113,7 @@ def log_response_to_sheet(question_data, llm_response, timestamp):
         
         # Update the Next Ask Timestamp and Confidence Level in SRSNext
         prompt_id = question_data['Prompt ID']
-        update_next_ask_timestamp(googlecreds, SPREADSHEET_URL, SHEET_NAME_SRS_NEXT, prompt_id, next_ask, new_confidence, DEBUG)
+        update_next_ask_timestamp(gspread_client, SPREADSHEET_URL, SHEET_NAME_SRS_NEXT, prompt_id, next_ask, new_confidence, DEBUG)
         
         if DEBUG:
             print(f"Debug - Updated confidence level from {current_confidence} to {new_confidence}")
