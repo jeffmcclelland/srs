@@ -3,7 +3,6 @@ import streamlit as st
 
 def get_random_boost_gif(boost_type, df_boosters, DEBUG=False):
     if DEBUG:
-        st.write(f"Debug - Boosters DataFrame:", df_boosters)
         st.write(f"Debug - Looking for boost_type:", boost_type)
     
     filtered_boosts = df_boosters[df_boosters['Boost type'] == boost_type]

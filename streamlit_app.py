@@ -206,7 +206,6 @@ def read_sheet_to_df(googlecreds, spreadsheet_url, sheet_name, data_range):
         data = worksheet.get(data_range)
         
         if DEBUG:
-            st.write("Raw data from sheet:", data)
             st.write("Number of columns in data:", len(data[0]) if data and len(data) > 0 else "No data")
 
         if not data or len(data) < 2:  # Check if we have data and at least one row besides headers
