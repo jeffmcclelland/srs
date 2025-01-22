@@ -7,7 +7,7 @@ with open('config.yaml', 'r') as f:
     config = yaml.safe_load(f)
 
 # Debug settings
-DEBUG = True
+DEBUG = False
 
 # Google Sheets configuration
 DATA_RANGE = "A:F"  # Prompt ID, Set, Prompt, Correct Answer, Confidence Level, Next Ask Timestamp
