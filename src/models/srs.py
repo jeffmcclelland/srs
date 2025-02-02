@@ -29,7 +29,7 @@ def get_available_sets(googlecreds, spreadsheet_url, sheet_name, data_range, TIM
         # Create DataFrame
         df = pd.DataFrame(data[1:], columns=['Prompt ID', 'Set', 'Prompt', 'Correct Answer', 'Confidence Level', 'Next Ask Timestamp'])
         df['Next Ask Timestamp'] = df['Next Ask Timestamp'].apply(lambda x: x.strip("'") if isinstance(x, str) else x)
-        df['Next Ask Timestamp'] = pd.to_datetime(df['Next Ask Timestamp'], format='%Y-%m-%d %H:%M:%S')
+        df['Next Ask Timestamp'] = pd.to_datetime(df['Next Ask Timestamp'], format='%Y-%m-%d')
         df['Next Ask Timestamp'] = df['Next Ask Timestamp'].dt.tz_localize('EET')
         
         # Get current time
@@ -81,7 +81,7 @@ def log_response_to_sheet(gspread_client, question_data, llm_response, timestamp
         
         # Calculate next ask timestamp based on new confidence
         next_ask = calculate_next_timestamp(new_confidence, timestamp, SRS_TIME_DELAYS)
-        next_ask_str = next_ask.strftime('%Y-%m-%d %H:%M:%S')
+        next_ask_str = next_ask.strftime('%Y-%m-%d')
             
         # Prepare the log entry
         log_data = pd.DataFrame({
@@ -89,7 +89,7 @@ def log_response_to_sheet(gspread_client, question_data, llm_response, timestamp
             'Set': [question_data['Set']],
             'Prompt': [question_data['Prompt']],
             'Correct Answer': [question_data['Correct Answer']],
-            'Asked Timestamp': [timestamp.strftime('%Y-%m-%d %H:%M:%S')],
+            'Asked Timestamp': [timestamp.strftime('%Y-%m-%d')],
             'Image Answer': [result.get('image_answer', '')],  # Get image_answer from LLM response
             'Result': ['Correct' if result['correct'] else 'Incorrect'],
             'Result Details': [result.get('user_message', 'No details provided')],

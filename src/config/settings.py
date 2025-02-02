@@ -48,19 +48,19 @@ SHOW_BOOST_FREQUENCY_INCORRECT = 3  # Show boost 1 out of 3 times for incorrect 
 
 # SRS time delay configuration
 SRS_TIME_DELAYS = [
-    {"confidence_level": 0, "delay_quantity": 10, "delay_time_unit": 'minutes'},
-    {"confidence_level": 1, "delay_quantity": 8,  "delay_time_unit": 'hours'},
-    {"confidence_level": 2, "delay_quantity": 3,  "delay_time_unit": 'days'},
-    {"confidence_level": 3, "delay_quantity": 5,  "delay_time_unit": 'days'},
-    {"confidence_level": 4, "delay_quantity": 10, "delay_time_unit": 'days'},
-    {"confidence_level": 5, "delay_quantity": 20, "delay_time_unit": 'days'},
+    {"confidence_level": 0, "delay_quantity": 1,  "delay_time_unit": 'minutes'},
+    {"confidence_level": 1, "delay_quantity": 1,  "delay_time_unit": 'hours'},
+    {"confidence_level": 2, "delay_quantity": 30, "delay_time_unit": 'days'},
+    {"confidence_level": 3, "delay_quantity": 30, "delay_time_unit": 'days'},
+    {"confidence_level": 4, "delay_quantity": 30, "delay_time_unit": 'days'},
+    {"confidence_level": 5, "delay_quantity": 30, "delay_time_unit": 'days'},
 ]
 
 # Get current theme
 CURRENT_THEME = THEMES[ACTIVE_THEME]
 
 # UI settings
-CANVAS_HEIGHT = 400
+CANVAS_HEIGHT = 500
 CANVAS_WIDTH = 1000
 BOTTOM_SPACING_PX = 200  # Bottom padding in pixels
 

@@ -224,7 +224,7 @@ def read_sheet_to_df(googlecreds, spreadsheet_url, sheet_name, data_range):
         if sheet_name == SHEET_NAME_SRS_NEXT:
             # Clean and convert Next Ask Timestamp
             df['Next Ask Timestamp'] = df['Next Ask Timestamp'].apply(lambda x: x.strip("'") if isinstance(x, str) else x)
-            df['Next Ask Timestamp'] = pd.to_datetime(df['Next Ask Timestamp'], format='%Y-%m-%d %H:%M:%S')
+            df['Next Ask Timestamp'] = pd.to_datetime(df['Next Ask Timestamp'], format='%Y-%m-%d')
             # Localize timestamps to EET timezone
             df['Next Ask Timestamp'] = df['Next Ask Timestamp'].dt.tz_localize('EET')
             

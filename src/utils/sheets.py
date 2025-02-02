@@ -61,7 +61,7 @@ def update_next_ask_timestamp(gspread_client, spreadsheet_url, sheet_name, promp
         if cell:
             actual_row = cell.row
             # Convert `next_ask_timestamp` to string
-            next_ask_timestamp_str = next_ask_timestamp.strftime('%Y-%m-%d %H:%M:%S')
+            next_ask_timestamp_str = next_ask_timestamp.strftime('%Y-%m-%d')
             # Update Confidence Level (Column E) and Next Ask Timestamp (Column F)
             worksheet.batch_update([
                 {'range': f'E{actual_row}', 'values': [[confidence_level]]},
