@@ -117,19 +117,24 @@ The user was asked to translate following word from Estonian into English: '{pro
 
 The correct answer in English is: '{correct_answer}'
 
-This is a test of their spelling abilities. Note: 
+This is a test of their spelling abilities. 
+- Carefully check letter-by-letter between what the user wrote and the correct answer.
+
+Notes on what to consider correct: 
   - Capitalisation doesn't matter but the spelling should be exactly correct. 
   - Punctuation like commas and exclamation marks don't matter. 
-  - If there are multiple correct answers provided (e.g. father / dad) and the user writes either of those, consider it correct.
-- Congratulate the user if the writing in the image matches. 
-- If it does not match, then indicate the errors that the user made. For instance which letters were missing or incorrect. 
+  - If there are multiple correct answers provided (e.g. father / dad) and the USER WRITES **ANY OF THOSE ANSWERS** Then consider it CORRECT.
+
+Notes on responding to the user: 
+- Congratulate the user if they get the correct answer. 
+- If they do not get the correct answer, indicate the errors that the user made. For instance which letters were missing or incorrect. 
 - If it's not possible to read any letters from the image, indicate that the user should try writing it again. 
 
 Respond in valid json with the following keys:
 - "image_answer": string - the words detected in the image
+- "user_message": string - a nice congratulations if they got it right, or a concise, clear message about what they got wrong. if it's not possible to read any letters from the image, then indicate the user should try again.
 - "correct": true or false
 - "try_again": true or false - true if it's not possible to read any letters from the image; false in all other cases
-- "user_message": string - a nice congratulations if they got it right, or a concise, clear message about what they got wrong. if it's not possible to read any letters from the image, then indicate the user should try again.
 
 """
 
@@ -298,9 +303,17 @@ def write_df_to_google_sheet(googlecreds,
     if not flag_append:  # If not appending, write data starting from start_cell
         worksheet.update(values=data, range_name=start_cell)
     else:
-        # To append data, find the first empty row
+        # To append data, find the last non-empty row
         all_values = worksheet.get_all_values()
-        first_empty_row = len(all_values) + 1  # Next empty row after the last filled row
+        # Find the last non-empty row by iterating from bottom
+        last_row = 0
+        for i in range(len(all_values) - 1, -1, -1):
+            if any(cell.strip() for cell in all_values[i]):  # Check if row has any non-empty cells
+                last_row = i + 1
+                break
+        
+        # If sheet is completely empty, start from row 1
+        first_empty_row = max(1, last_row + 1)
         start_cell = f"A{first_empty_row}"
 
         # Update starting at the next empty cell calculated
@@ -336,14 +349,50 @@ try:
         if not st.session_state.selected_sets:
             st.session_state.selected_sets = {set_name: True for set_name in available_sets.keys()}
         
-        # Create checkboxes for each set
-        for set_name, count in available_sets.items():
-            st.session_state.selected_sets[set_name] = st.checkbox(
-                f"{set_name} - {count} words",
-                value=st.session_state.selected_sets.get(set_name, True),
-                key=f"set_{set_name}"
-            )
+        if DEBUG:
+            print("Available sets:", available_sets)
+            print("Current selected_sets:", st.session_state.selected_sets)
         
+        # Create list of pill labels with counts
+        set_names = list(available_sets.keys())
+        pill_labels = [f"{set_name} - {available_sets[set_name]} words" for set_name in set_names]
+        
+        if DEBUG:
+            print("Pill labels:", pill_labels)
+        
+        # Get currently selected pill indices
+        default_selected = [i for i, set_name in enumerate(set_names) 
+                          if st.session_state.selected_sets.get(set_name, True)]
+        
+        if DEBUG:
+            print("Default selected indices:", default_selected)
+        
+        try:
+            # Display pills and get selected indices
+            selected = st.multiselect(
+                "Select Sets",
+                options=set_names,
+                default=set_names,  # Start with all selected
+                format_func=lambda x: f"{x} ({available_sets[x]})"
+            )
+            
+            if DEBUG:
+                print("Selected sets:", selected)
+            
+            # Update selected_sets based on selection
+            st.session_state.selected_sets = {
+                set_name: (set_name in selected)
+                for set_name in set_names
+            }
+            
+            if DEBUG:
+                print("Updated selected_sets:", st.session_state.selected_sets)
+                
+        except Exception as e:
+            if DEBUG:
+                print(f"Error in set selection: {str(e)}")
+                st.error(f"Error in set selection: {str(e)}")
+            
         # Get Started button
         if st.button("Get Started", type="primary"):
             st.session_state.study_mode = True
@@ -369,10 +418,21 @@ try:
             if DEBUG:
                 print(f"Filtered active questions: {len(active_questions)}")
             
-            # Randomly shuffle questions
-            random.shuffle(active_questions)
-            if DEBUG:
-                print("Questions shuffled")
+            # Group questions by Next Ask Timestamp, sort groups, and randomize within groups
+            from itertools import chain
+            from collections import defaultdict
+            
+            # Group questions by Next Ask Timestamp
+            grouped_questions = defaultdict(list)
+            for question in active_questions:
+                grouped_questions[question['Next Ask Timestamp']].append(question)
+            
+            # Sort each group randomly and combine all groups in timestamp order
+            active_questions = list(chain.from_iterable(
+                random.sample(group, len(group))  # Randomize within group
+                for timestamp in sorted(grouped_questions.keys())  # Sort groups by timestamp
+                for group in [grouped_questions[timestamp]]  # Get the group for this timestamp
+            ))
             
             st.session_state.active_questions = active_questions
             if DEBUG:
@@ -619,23 +679,10 @@ try:
                             if 'boost_gif' in st.session_state:
                                 print(f"boost_gif value: {st.session_state.boost_gif}")
                             
-                            # Display boost GIF if available
+                            # Calculate if we should show boost, but store it in session state
                             if 'boost_gif' in st.session_state and st.session_state.boost_gif:
                                 # For correct answers, show boost 1/5 times
-                                should_show_boost = random.randint(1, SHOW_BOOST_FREQUENCY_CORRECT if result['correct'] else SHOW_BOOST_FREQUENCY_INCORRECT) == 1
-                                
-                                if should_show_boost:
-                                    print("\n=== Debug: Attempting to display boost GIF ===")
-                                    if DEBUG:
-                                        st.write("Debug - Attempting to display GIF:", st.session_state.boost_gif)
-                                        print(f"Current boost_gif value: {st.session_state.boost_gif}")
-                                    try:
-                                        st.image(st.session_state.boost_gif)
-                                        print("Image display attempted")
-                                    except Exception as e:
-                                        print(f"Error displaying image: {str(e)}")
-                                        if DEBUG:
-                                            st.error(f"Error displaying GIF: {str(e)}")
+                                st.session_state.should_show_boost = random.randint(1, SHOW_BOOST_FREQUENCY_CORRECT if result['correct'] else SHOW_BOOST_FREQUENCY_INCORRECT) == 1
                             
                             # Reset retry count for next question
                             st.session_state.retry_count = 0
@@ -671,6 +718,25 @@ try:
                             st.error(f"Error: {str(e)}")
                         st.error("An error occurred while processing your response")
                         status.update(label="Error occurred!", state="error", expanded=True)
+            
+            # Create a container at the bottom of the page for the boost GIF
+            boost_container = st.container()
+            with boost_container:
+                # Display boost GIF if available and should be shown
+                if ('boost_gif' in st.session_state and 
+                    st.session_state.boost_gif and 
+                    getattr(st.session_state, 'should_show_boost', False)):
+                    print("\n=== Debug: Attempting to display boost GIF ===")
+                    if DEBUG:
+                        st.write("Debug - Attempting to display GIF:", st.session_state.boost_gif)
+                        print(f"Current boost_gif value: {st.session_state.boost_gif}")
+                    try:
+                        st.image(st.session_state.boost_gif)
+                        print("Image display attempted")
+                    except Exception as e:
+                        print(f"Error displaying image: {str(e)}")
+                        if DEBUG:
+                            st.error(f"Error displaying GIF: {str(e)}")
             
             # Add bottom spacing
             st.empty().markdown(f'<div style="height: {BOTTOM_SPACING_PX}px"></div>', unsafe_allow_html=True)

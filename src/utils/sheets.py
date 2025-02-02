@@ -22,21 +22,42 @@ def write_df_to_google_sheet(gspread_client,
             print(f"\nWriting to sheet '{spreadsheet_sheet_name}'")
             print(f"Data to write:\n{df}")
         
+        # Fill NaN values with empty strings and downcast types
+        df = df.fillna('').infer_objects(copy=False)
+
+        # Convert Timestamp columns to string
+        for column in df.select_dtypes(include=['datetime64[ns]']).columns:
+            df[column] = df[column].astype(str)
+        
         # If clear_sheet is True, clear the entire sheet first
         if clear_sheet:
             worksheet.clear()
             if DEBUG:
                 print("Sheet cleared")
         
-        # Convert DataFrame to list of lists
-        data = [df.columns.values.tolist()]  # Headers
-        data.extend(df.values.tolist())      # Data
+        # Prepare data based on append mode
+        if flag_append:
+            data = df.values.tolist()  # Exclude header for appending
+        else:
+            data = [df.columns.values.tolist()] + df.values.tolist()  # Include header
         
         if DEBUG:
             print(f"Data prepared for writing: {len(data)} rows")
         
-        # Update starting at the next empty cell calculated
-        worksheet.update(values=data, range_name=start_cell)
+        if not flag_append:
+            # If not appending, write data starting from start_cell
+            worksheet.update(values=data, range_name=start_cell)
+        else:
+            # To append data, find the first empty row
+            all_values = worksheet.get_all_values()
+            first_empty_row = len(all_values) + 1  # Next empty row after the last filled row
+            start_cell = f"A{first_empty_row}"
+            
+            if DEBUG:
+                print(f"Appending at row: {first_empty_row}")
+
+            # Update starting at the next empty cell calculated
+            worksheet.update(values=data, range_name=start_cell)
     
         if DEBUG:
             print(f"Finished writing to sheet '{spreadsheet_sheet_name}' - Append Mode: {'Yes' if flag_append else 'No'}")

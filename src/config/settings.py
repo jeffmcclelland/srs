@@ -44,7 +44,7 @@ THEMES = {
 
 # Boost settings
 SHOW_BOOST_FREQUENCY_CORRECT = 5  # Show boost 1 out of 5 times for correct answers
-SHOW_BOOST_FREQUENCY_INCORRECT = 3  # Show boost 1 out of 3 times for incorrect answers
+SHOW_BOOST_FREQUENCY_INCORRECT = 2  # Show boost 1 out of 3 times for incorrect answers
 
 # SRS time delay configuration
 SRS_TIME_DELAYS = [
